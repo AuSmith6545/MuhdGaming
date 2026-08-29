@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// This file is the source of truth for who can read/write our data —
+// but Firebase doesn't read it from GitHub automatically. Whenever you
+// change it, copy/paste the whole file into:
+// Firebase Console -> Firestore Database -> Rules -> paste -> Publish
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAllowedFriend() {
+      return request.auth != null &&
+        request.auth.token.email in [
+          // TODO: replace with your real friend group's emails
+          'ausmithdesign@gmail.com'
+        ];
+    }
+
+    // Everything in the database uses the same rule for now: only
+    // signed-in friends on the allowlist above may read or write.
+    match /{document=**} {
+      allow read, write: if isAllowedFriend();
+    }
+  }
+}

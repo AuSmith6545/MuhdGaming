@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MuhdGaming — connection test</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 3rem auto; padding: 0 1rem; }
+  button { font: inherit; padding: 0.5rem 1rem; cursor: pointer; }
+  #pings { list-style: none; padding: 0; }
+  #pings li { padding: 0.4rem 0; border-bottom: 1px solid #ddd; }
+  #status { color: #666; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<h1>MuhdGaming — backend connection test</h1>
+<p id="status">Loading…</p>
+
+<div id="signed-out" hidden>
+  <button id="sign-in">Sign in with Google</button>
+</div>
+
+<div id="signed-in" hidden>
+  <p>Signed in as <strong id="user-name"></strong></p>
+  <button id="sign-out">Sign out</button>
+  <button id="send-ping">Send a test ping</button>
+  <h2>Live pings (from Firestore)</h2>
+  <ul id="pings"></ul>
+</div>
+
+<!-- This page is just a wiring test: prove sign-in + live Firestore updates
+     both work end to end before we build the real site on top of it. -->
+
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script>
+  // TODO: replace with the config object from
+  // Firebase Console -> Project settings -> Your apps -> Web app
+  const firebaseConfig = {
+    apiKey: "TODO",
+    authDomain: "TODO",
+    projectId: "TODO",
+    storageBucket: "TODO",
+    messagingSenderId: "TODO",
+    appId: "TODO"
+  };
+
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+  const provider = new firebase.auth.GoogleAuthProvider();
+
+  const statusEl = document.getElementById('status');
+  const signedOutEl = document.getElementById('signed-out');
+  const signedInEl = document.getElementById('signed-in');
+  const userNameEl = document.getElementById('user-name');
+  const pingsEl = document.getElementById('pings');
+
+  document.getElementById('sign-in').onclick = () => auth.signInWithPopup(provider);
+  document.getElementById('sign-out').onclick = () => auth.signOut();
+  document.getElementById('send-ping').onclick = () => {
+    db.collection('pings').add({
+      from: auth.currentUser.displayName,
+      at: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  };
+
+  let unsubscribePings = null;
+
+  auth.onAuthStateChanged(user => {
+    if (user) {
+      statusEl.textContent = '';
+      signedOutEl.hidden = true;
+      signedInEl.hidden = false;
+      userNameEl.textContent = user.displayName;
+
+      unsubscribePings = db.collection('pings').orderBy('at', 'desc').limit(10)
+        .onSnapshot(snapshot => {
+          pingsEl.innerHTML = '';
+          snapshot.forEach(doc => {
+            const li = document.createElement('li');
+            li.textContent = `${doc.data().from} pinged`;
+            pingsEl.appendChild(li);
+          });
+        }, err => {
+          statusEl.textContent = 'Firestore error: ' + err.message;
+        });
+    } else {
+      statusEl.textContent = '';
+      signedOutEl.hidden = false;
+      signedInEl.hidden = true;
+      if (unsubscribePings) unsubscribePings();
+    }
+  });
+</script>
+</body>
+</html>
