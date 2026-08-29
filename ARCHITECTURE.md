@@ -22,7 +22,10 @@ This is the model as actually implemented in `assets/app.js` (the earlier planni
 ```
 games (collection)
   └─ doc per game: title, platforms[], genres[], coopType, minPlayers, maxPlayers,
-     description, storeUrl, steamAppId, image, status ("proposed"/"approved"),
+     description, storeUrl, steamAppId, image,
+     status ("proposed"/"approved"/"archived" — "archived" just drops it off the
+     Games library; demoting an approved game back to a vote returns it to
+     "proposed" and clears votes rather than adding a fourth status),
      proposedBy {uid, name}, proposedAt, votes ({uid: true}),
      approvedAt, lastActivityAt (bumped on any milestone/todo write — this is
      what powers the Dashboard's "Recently Active" widget without a
@@ -33,7 +36,9 @@ games (collection)
      └─ notes (subcollection): text, authorUid, authorName, authorPhoto, createdAt
 
 sessions (collection)          ← the calendar
-  └─ doc per session: gameId, gameTitle, dateTime, status ("proposed"/"accepted"),
+  └─ doc per session: gameId, gameTitle, dateTime,
+     status ("proposed"/"accepted"/"cancelled" — cancelling doesn't delete the
+     doc, it just drops out of the calendar's views),
      proposedBy {uid, name}, notes, createdAt, acceptedAt
      rsvps: { [uid]: {choice, name, photoURL} } — the name/photo are stored
      alongside each RSVP (not just the uid) since the `friends` collection is

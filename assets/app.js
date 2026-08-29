@@ -229,6 +229,61 @@ MG.proposeGame = async function (fields) {
   return ref.id;
 };
 
+// Edits an existing game's details in place — same fields as proposeGame,
+// none of votes/status/proposedBy touched.
+MG.updateGame = async function (gameId, fields) {
+  await MG.db.collection('games').doc(gameId).update({
+    title: fields.title,
+    platforms: fields.platforms || [],
+    genres: fields.genres || [],
+    minPlayers: fields.minPlayers || 2,
+    maxPlayers: fields.maxPlayers || 4,
+    description: fields.description || '',
+    storeUrl: fields.storeUrl || '',
+    steamAppId: fields.steamAppId || null,
+    image: fields.image || null,
+    lastActivityAt: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+};
+
+// Withdraws a recommendation. A freshly-proposed game never has
+// milestones/todos/notes, but a *demoted* one (sent back to a vote by
+// MG.demoteGame, which deliberately preserves its subcollections) can —
+// so this cleans those up too rather than leaving them orphaned under a
+// deleted parent doc.
+MG.withdrawGame = async function (gameId) {
+  const gameRef = MG.db.collection('games').doc(gameId);
+  for (const sub of ['milestones', 'todos', 'notes']) {
+    const snap = await gameRef.collection(sub).get();
+    if (!snap.empty) {
+      const batch = MG.db.batch();
+      snap.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+  }
+  await gameRef.delete();
+};
+
+// Sends an approved game back to a fresh vote — clears the old votes so
+// the crew re-decides from scratch. Milestones/todos/notes are left
+// untouched so nothing is lost if it gets re-approved later.
+MG.demoteGame = async function (gameId) {
+  await MG.db.collection('games').doc(gameId).update({
+    status: 'proposed',
+    votes: {},
+    lastActivityAt: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+};
+
+// Retires an approved game without deleting its history — just drops off
+// the active Games library.
+MG.archiveGame = async function (gameId) {
+  await MG.db.collection('games').doc(gameId).update({
+    status: 'archived',
+    lastActivityAt: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+};
+
 // Toggles the current friend's vote; auto-approves the moment every friend
 // in the crew has voted yes. Wrapped in a transaction so two friends voting
 // at once can't both think they cast the deciding vote — and the friend
@@ -341,31 +396,48 @@ MG.proposeSession = async function (fields) {
 };
 
 // Sets the current friend's RSVP; auto-accepts once "yes" RSVPs reach the
-// game's minimum player count. Transaction-wrapped for the same reason as
-// toggleVote above.
+// game's minimum player count, and auto-demotes back to "proposed" if a
+// changed RSVP drops an accepted session back below that count. Transaction-
+// wrapped for the same reason as toggleVote above.
 MG.setRsvp = async function (sessionId, choice) {
   const uid = MG.user.uid;
   const ref = MG.db.collection('sessions').doc(sessionId);
   await MG.db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
-    if (!snap.exists) return;
+    if (!snap.exists || snap.data().status === 'cancelled') return;
     const data = snap.data();
     const rsvps = Object.assign({}, data.rsvps || {}, {
       [uid]: { choice, name: MG.user.displayName, photoURL: MG.user.photoURL || null },
     });
     const update = { rsvps };
 
-    if (data.status === 'proposed') {
+    if (data.status === 'proposed' || data.status === 'accepted') {
       const yesCount = Object.values(rsvps).filter(v => v.choice === 'yes').length;
       const gameSnap = await tx.get(MG.db.collection('games').doc(data.gameId));
       const minPlayers = (gameSnap.exists && gameSnap.data().minPlayers) || 2;
-      if (yesCount >= minPlayers) {
+      if (data.status === 'proposed' && yesCount >= minPlayers) {
         update.status = 'accepted';
         update.acceptedAt = firebase.firestore.FieldValue.serverTimestamp();
+      } else if (data.status === 'accepted' && yesCount < minPlayers) {
+        update.status = 'proposed';
       }
     }
     tx.update(ref, update);
   });
+};
+
+// Edits an existing session's date/time and notes.
+MG.updateSession = async function (sessionId, fields) {
+  const update = {};
+  if (fields.dateTime) update.dateTime = firebase.firestore.Timestamp.fromDate(fields.dateTime);
+  if (fields.notes !== undefined) update.notes = fields.notes;
+  await MG.db.collection('sessions').doc(sessionId).update(update);
+};
+
+// Cancels a session — it drops out of the calendar's normal views but the
+// doc (and its RSVP history) isn't deleted.
+MG.cancelSession = async function (sessionId) {
+  await MG.db.collection('sessions').doc(sessionId).update({ status: 'cancelled' });
 };
 
 /* ---------- shared modals (used from Dashboard, Recommendations, Calendar) ---------- */
@@ -386,36 +458,40 @@ MG.openModal = function (innerHtml) {
   return backdrop;
 };
 
-MG.openProposeGameModal = function (onDone) {
+// Shared by "Propose a Game" (existing = null) and "Edit Game"
+// (existing = {id, title, ...the game's current fields}).
+MG.openGameFormModal = function (existing) {
+  const isEdit = !!existing;
   const html = `
-    <div class="eyebrow">Propose a Game</div>
-    <h2 style="font-size:22px; margin-top:10px;">Add a recommendation</h2>
+    <div class="eyebrow">${isEdit ? 'Edit Game' : 'Propose a Game'}</div>
+    <h2 style="font-size:22px; margin-top:10px;">${isEdit ? 'Update the details' : 'Add a recommendation'}</h2>
     <div class="stack" style="margin-top:20px;">
       <div class="field">
         <label>Steam store link or App ID (optional)</label>
         <div class="row">
-          <input id="pg-steam" type="text" placeholder="https://store.steampowered.com/app/1426210" style="flex:1;">
+          <input id="pg-steam" type="text" placeholder="https://store.steampowered.com/app/1426210" style="flex:1;" value="${isEdit ? MG.escapeHtml(existing.storeUrl || '') : ''}">
           <button id="pg-lookup" class="btn btn-ghost btn-sm" type="button">Look up</button>
         </div>
         <span id="pg-steam-status" class="mono" style="font-size:11px; color:var(--ink-dim);"></span>
       </div>
-      <div class="field"><label>Title</label><input id="pg-title" type="text" required></div>
+      <div class="field"><label>Title</label><input id="pg-title" type="text" required value="${isEdit ? MG.escapeHtml(existing.title) : ''}"></div>
       <div class="grid-2">
-        <div class="field"><label>Min players</label><input id="pg-min" type="number" min="1" value="2"></div>
-        <div class="field"><label>Max players</label><input id="pg-max" type="number" min="1" value="4"></div>
+        <div class="field"><label>Min players</label><input id="pg-min" type="number" min="1" value="${isEdit ? (existing.minPlayers || 2) : 2}"></div>
+        <div class="field"><label>Max players</label><input id="pg-max" type="number" min="1" value="${isEdit ? (existing.maxPlayers || 4) : 4}"></div>
       </div>
-      <div class="field"><label>Platforms (comma separated)</label><input id="pg-platforms" type="text" placeholder="Steam, PC"></div>
-      <div class="field"><label>Genres / tags (comma separated)</label><input id="pg-genres" type="text" placeholder="Co-op, Shooter"></div>
-      <div class="field"><label>Description</label><textarea id="pg-desc"></textarea></div>
+      <div class="field"><label>Platforms (comma separated)</label><input id="pg-platforms" type="text" placeholder="Steam, PC" value="${isEdit ? MG.escapeHtml((existing.platforms || []).join(', ')) : ''}"></div>
+      <div class="field"><label>Genres / tags (comma separated)</label><input id="pg-genres" type="text" placeholder="Co-op, Shooter" value="${isEdit ? MG.escapeHtml((existing.genres || []).join(', ')) : ''}"></div>
+      <div class="field"><label>Description</label><textarea id="pg-desc">${isEdit ? MG.escapeHtml(existing.description || '') : ''}</textarea></div>
       <div class="row" style="justify-content:flex-end; margin-top:6px;">
         <button class="btn btn-ghost" type="button" id="pg-cancel">Cancel</button>
-        <button class="btn btn-primary" type="button" id="pg-submit">Add Recommendation</button>
+        <button class="btn btn-primary" type="button" id="pg-submit">${isEdit ? 'Save Changes' : 'Add Recommendation'}</button>
       </div>
       <p id="pg-error" class="mono" style="color:#ff8a6a; font-size:12px;"></p>
     </div>
   `;
   const modal = MG.openModal(html);
-  let steamAppId = null, steamImage = null;
+  let steamAppId = isEdit ? (existing.steamAppId || null) : null;
+  let steamImage = isEdit ? (existing.image || null) : null;
 
   modal.querySelector('#pg-cancel').onclick = () => MG.closeModal();
 
@@ -433,7 +509,7 @@ MG.openProposeGameModal = function (onDone) {
       modal.querySelector('#pg-desc').value = details.description || '';
       modal.querySelector('#pg-platforms').value = Object.keys(details.platforms || {}).filter(p => details.platforms[p]).join(', ');
       modal.querySelector('#pg-genres').value = (details.categories || []).filter(c => /co-?op/i.test(c)).concat(details.genres || []).join(', ');
-      statusEl.textContent = `Found "${details.name}" — fields filled in, edit anything before adding.`;
+      statusEl.textContent = `Found "${details.name}" — fields filled in, edit anything before ${isEdit ? 'saving' : 'adding'}.`;
     } catch (err) {
       statusEl.textContent = err.message;
     }
@@ -445,20 +521,27 @@ MG.openProposeGameModal = function (onDone) {
     if (!title) { errorEl.textContent = 'Title is required.'; return; }
     const submitBtn = modal.querySelector('#pg-submit');
     submitBtn.disabled = true;
+
+    // Respect whatever's actually typed in the Steam field, even if the
+    // user never clicked "Look up" — otherwise editing that text looks
+    // like a normal field but silently doesn't save.
+    const typedAppId = MG.parseSteamAppId(modal.querySelector('#pg-steam').value);
+    if (typedAppId) steamAppId = typedAppId;
+
+    const fields = {
+      title,
+      minPlayers: parseInt(modal.querySelector('#pg-min').value, 10) || 2,
+      maxPlayers: parseInt(modal.querySelector('#pg-max').value, 10) || 4,
+      platforms: modal.querySelector('#pg-platforms').value.split(',').map(s => s.trim()).filter(Boolean),
+      genres: modal.querySelector('#pg-genres').value.split(',').map(s => s.trim()).filter(Boolean),
+      description: modal.querySelector('#pg-desc').value.trim(),
+      storeUrl: steamAppId ? `https://store.steampowered.com/app/${steamAppId}` : (isEdit ? (existing.storeUrl || '') : ''),
+      steamAppId,
+      image: steamImage,
+    };
     try {
-      await MG.proposeGame({
-        title,
-        minPlayers: parseInt(modal.querySelector('#pg-min').value, 10) || 2,
-        maxPlayers: parseInt(modal.querySelector('#pg-max').value, 10) || 4,
-        platforms: modal.querySelector('#pg-platforms').value.split(',').map(s => s.trim()).filter(Boolean),
-        genres: modal.querySelector('#pg-genres').value.split(',').map(s => s.trim()).filter(Boolean),
-        description: modal.querySelector('#pg-desc').value.trim(),
-        storeUrl: steamAppId ? `https://store.steampowered.com/app/${steamAppId}` : '',
-        steamAppId,
-        image: steamImage,
-      });
+      if (isEdit) await MG.updateGame(existing.id, fields); else await MG.proposeGame(fields);
       MG.closeModal();
-      if (onDone) onDone();
     } catch (err) {
       errorEl.textContent = err.message;
       submitBtn.disabled = false;
@@ -466,7 +549,9 @@ MG.openProposeGameModal = function (onDone) {
   };
 };
 
-MG.openProposeSessionModal = async function (onDone) {
+MG.openProposeGameModal = function () { MG.openGameFormModal(null); };
+
+MG.openProposeSessionModal = async function () {
   let games = [];
   try {
     const snap = await MG.db.collection('games').where('status', '==', 'approved').get();
@@ -519,10 +604,46 @@ MG.openProposeSessionModal = async function (onDone) {
         notes: modal.querySelector('#ps-notes').value.trim(),
       });
       MG.closeModal();
-      if (onDone) onDone();
     } catch (err) {
       errorEl.textContent = err.message;
       submitBtn.disabled = false;
+    }
+  };
+};
+
+// Edit an existing session's date/time and notes. `session` needs
+// {id, gameTitle, when (a JS Date), notes}.
+MG.openEditSessionModal = function (session) {
+  const local = session.when
+    ? new Date(session.when.getTime() - session.when.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+    : '';
+  const html = `
+    <div class="eyebrow">Edit Session</div>
+    <h2 style="font-size:22px; margin-top:10px;">${MG.escapeHtml(session.gameTitle)}</h2>
+    <div class="stack" style="margin-top:20px;">
+      <div class="field"><label>Date &amp; time</label><input id="es-when" type="datetime-local" value="${local}"></div>
+      <div class="field"><label>Notes</label><textarea id="es-notes">${MG.escapeHtml(session.notes || '')}</textarea></div>
+      <div class="row" style="justify-content:flex-end; margin-top:6px;">
+        <button class="btn btn-ghost" type="button" id="es-cancel">Cancel</button>
+        <button class="btn btn-primary" type="button" id="es-submit">Save Changes</button>
+      </div>
+      <p id="es-error" class="mono" style="color:#ff8a6a; font-size:12px;"></p>
+    </div>
+  `;
+  const modal = MG.openModal(html);
+  modal.querySelector('#es-cancel').onclick = () => MG.closeModal();
+  modal.querySelector('#es-submit').onclick = async () => {
+    const whenVal = modal.querySelector('#es-when').value;
+    const errorEl = modal.querySelector('#es-error');
+    if (!whenVal) { errorEl.textContent = 'Pick a date and time.'; return; }
+    const btn = modal.querySelector('#es-submit');
+    btn.disabled = true;
+    try {
+      await MG.updateSession(session.id, { dateTime: new Date(whenVal), notes: modal.querySelector('#es-notes').value.trim() });
+      MG.closeModal();
+    } catch (err) {
+      errorEl.textContent = err.message;
+      btn.disabled = false;
     }
   };
 };

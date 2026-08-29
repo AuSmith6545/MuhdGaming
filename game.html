@@ -26,6 +26,12 @@
     </div>
   </div>
 
+  <div class="wrap row" style="padding-top:16px; justify-content:flex-end; gap:10px;">
+    <button id="btn-edit-game" class="btn btn-ghost btn-sm" type="button">Edit</button>
+    <button id="btn-demote-game" class="btn btn-ghost btn-sm" type="button">Move to Recommendations</button>
+    <button id="btn-archive-game" class="btn btn-ghost btn-sm" type="button">Archive</button>
+  </div>
+
   <div class="wrap grid-2" style="padding:28px 40px;">
 
     <div class="panel chamfer" style="padding:22px;">
@@ -70,6 +76,7 @@
 <script>
 const gameId = new URLSearchParams(location.search).get('id');
 const STEP_ORDER = ['todo', 'doing', 'done'];
+let currentGame = null;
 
 function loadGame() {
   if (!gameId) {
@@ -84,10 +91,12 @@ function loadGame() {
       return;
     }
     const g = doc.data();
+    currentGame = { id: gameId, ...g };
     document.title = `MuhdGaming — ${g.title}`;
     document.getElementById('banner-title').textContent = g.title;
     const voteCount = Object.keys(g.votes || {}).length;
-    document.getElementById('banner-eyebrow').textContent = `Approved // ${voteCount} of ${MG.friendCount} friends`;
+    const statusLabel = g.status === 'archived' ? 'Archived' : g.status === 'proposed' ? 'Back Up For a Vote' : 'Approved';
+    document.getElementById('banner-eyebrow').textContent = `${statusLabel} // ${voteCount} of ${MG.friendCount} friends`;
     if (g.image) document.getElementById('banner').style.background = `linear-gradient(0deg, rgba(9,11,13,.55), rgba(9,11,13,.75)), url('${g.image.replace(/'/g, "%27")}') center/cover`;
 
     const tags = [...(g.platforms || []).slice(0, 1), ...(g.genres || []).slice(0, 2),
@@ -201,6 +210,16 @@ function loadGame() {
     if (!input.value.trim()) return;
     MG.addNote(gameId, input.value.trim()).catch((err) => alert(err.message));
     input.value = '';
+  };
+
+  document.getElementById('btn-edit-game').onclick = () => { if (currentGame) MG.openGameFormModal(currentGame); };
+  document.getElementById('btn-demote-game').onclick = () => {
+    if (!confirm('Move this back to Recommendations for a fresh vote? Existing votes will be cleared.')) return;
+    MG.demoteGame(gameId).then(() => { location.href = 'recommendations.html'; }).catch((e) => alert(e.message));
+  };
+  document.getElementById('btn-archive-game').onclick = () => {
+    if (!confirm('Archive this game? It will drop off the Games library.')) return;
+    MG.archiveGame(gameId).then(() => { location.href = 'games.html'; }).catch((e) => alert(e.message));
   };
 }
 

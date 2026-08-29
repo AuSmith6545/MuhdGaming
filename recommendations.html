@@ -86,6 +86,7 @@ function renderGrid() {
               <span class="mono" style="font-size:10.5px; color:var(--ink-dim);">${g.voteCount} OF ${MG.friendCount} FRIENDS</span>
               <button class="rsvp-btn${voted ? ' active-yes' : ''}" data-vote="${g.id}">${voted ? '✓ Voted' : 'Vote'}</button>
             </div>
+            <button class="btn btn-ghost btn-sm" data-withdraw="${g.id}" type="button" style="align-self:flex-start;">Withdraw</button>
           </div>
         </div>
       </div>`;
@@ -93,6 +94,13 @@ function renderGrid() {
 
   grid.querySelectorAll('[data-vote]').forEach((btn) => {
     btn.onclick = () => { btn.disabled = true; MG.toggleVote(btn.dataset.vote).catch((e) => alert(e.message)); };
+  });
+  grid.querySelectorAll('[data-withdraw]').forEach((btn) => {
+    btn.onclick = () => {
+      if (!confirm("Withdraw this recommendation? This can't be undone.")) return;
+      btn.disabled = true;
+      MG.withdrawGame(btn.dataset.withdraw).catch((e) => alert(e.message));
+    };
   });
 }
 

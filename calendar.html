@@ -176,11 +176,21 @@ function renderDetail() {
     </div>
 
     ${s.notes ? `<div class="mono" style="font-size:11.5px; color:var(--ink-dim); border-top:1px solid var(--line); padding-top:14px; margin-top:16px; line-height:1.5;">"${MG.escapeHtml(s.notes)}"</div>` : ''}
+
+    <div class="row" style="gap:8px; padding-top:16px; margin-top:16px; border-top:1px solid var(--line);">
+      <button class="btn btn-ghost btn-sm" id="btn-edit-session" type="button">Edit</button>
+      <button class="btn btn-ghost btn-sm" id="btn-cancel-session" type="button">Cancel Session</button>
+    </div>
   `;
 
   panel.querySelectorAll('[data-rsvp]').forEach((btn) => {
     btn.onclick = () => { btn.disabled = true; MG.setRsvp(s.id, btn.dataset.rsvp).catch((e) => alert(e.message)); };
   });
+  panel.querySelector('#btn-edit-session').onclick = () => MG.openEditSessionModal(s);
+  panel.querySelector('#btn-cancel-session').onclick = () => {
+    if (!confirm('Cancel this session?')) return;
+    MG.cancelSession(s.id).catch((e) => alert(e.message));
+  };
 }
 
 function renderCalendar() {
@@ -191,10 +201,12 @@ function renderCalendar() {
   document.getElementById('view-list').onclick = () => { viewMode = 'list'; document.getElementById('view-list').classList.add('active'); document.getElementById('view-month').classList.remove('active'); renderCalendarBody(); };
 
   MG.db.collection('sessions').onSnapshot((snap) => {
-    allSessions = snap.docs.map((d) => {
-      const data = d.data();
-      return { id: d.id, ...data, when: MG.toDate(data.dateTime) };
-    });
+    allSessions = snap.docs
+      .map((d) => {
+        const data = d.data();
+        return { id: d.id, ...data, when: MG.toDate(data.dateTime) };
+      })
+      .filter((s) => s.status !== 'cancelled'); // cancelled sessions drop out of view, not deleted
     renderCalendarBody();
     renderDetail();
   }, (err) => {
