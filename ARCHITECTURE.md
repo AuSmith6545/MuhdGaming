@@ -39,17 +39,24 @@ Google sign-in proves *who* someone is, not that they're allowed in. Firestore S
 
 Adding a friend = adding one document to the `friends` collection by hand in the Firebase console (Firestore Database → Data tab), doc ID = their email. No code change, no git commit, no redeploy.
 
-## Future extension: Steam integration
+## Steam integration
 
-Firestore/Auth work by letting the browser talk to Firebase directly, which is why no server was needed for the core site. Steam's APIs don't allow that (no CORS support, and achievement data needs a secret API key), so reaching Steam requires one small server-side piece in between — a **Cloudflare Worker** (free tier, no billing info required, ~100k requests/day). Written once, not maintained per game.
+Firestore/Auth work by letting the browser talk to Firebase directly, which is why no server was needed for the core site. Steam's APIs don't allow that (no CORS support, and achievement data needs a secret API key), so reaching Steam goes through one small server-side piece in between — a **Cloudflare Worker** (free tier, no billing info required, ~100k requests/day). Written once, not maintained per game.
 
-What it enables, roughly in build order:
+**Status: built and live.** Code lives in `worker/` in this repo. Deployed at:
 
-1. **Auto-fill on recommend** — paste a Steam store URL, the Worker fetches title, description, cover image, platforms, and co-op tags from Steam and pre-fills the recommendation form.
-2. **Suggested milestones from real achievements** — on approval, pull the game's actual Steam achievement list as a starting milestone checklist instead of a blank board; the group picks which ones matter.
-3. **Self-updating milestones (stretch goal)** — each friend links their Steam ID once; the Worker checks who's actually unlocked which achievement and auto-checks the matching milestone. Real but a bigger lift than 1–2: needs public Steam profiles and the first recurring background job in the stack (rather than fetch-on-demand). Worth revisiting after 1–2 are live, not blocking them.
+```
+https://muhdgaming-steam-proxy.ausmithdesign.workers.dev
+```
 
-Since everyone in the group already uses Steam, this is likely worth building at initial release or as a quick follow-up rather than a distant nice-to-have.
+Routes (both public, read-only, cached at the edge for an hour):
+
+- `GET /appdetails?appid=NNN` → name, description, cover image, platforms, genres, co-op tags
+- `GET /achievements?appid=NNN` → that game's real Steam achievement list (name, description, icon)
+
+The Steam Web API key the achievements route needs is stored as a Cloudflare Worker **secret** (`STEAM_API_KEY`), set directly via `npx wrangler secret put STEAM_API_KEY` from the `worker/` folder — it's never in this repo. To redeploy after editing `worker/src/index.js`: `cd worker && npx wrangler deploy`.
+
+Still to build (site-side, not the proxy): wiring these routes into the actual recommendation form (paste a Steam URL → auto-fill) and the game-approval flow (seed the milestone board from `/achievements`). The self-updating-milestones stretch goal (auto-checking milestones as friends unlock the real achievement) stays future work — it needs friends to link a Steam ID and the stack's first recurring background job, so it's deliberately not blocking the two features above.
 
 ## One-time setup checklist
 
