@@ -34,9 +34,11 @@ MG.initials = function (name) {
 };
 
 MG.escapeHtml = function (str) {
+  // Safe for both text content and quoted-attribute values (e.g. src="...")
+  // — textContent round-tripping alone escapes & < > but not quote marks.
   const div = document.createElement('div');
   div.textContent = str == null ? '' : String(str);
-  return div.innerHTML;
+  return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 };
 
 MG.toDate = function (ts) {
@@ -229,19 +231,23 @@ MG.proposeGame = async function (fields) {
 
 // Toggles the current friend's vote; auto-approves the moment every friend
 // in the crew has voted yes. Wrapped in a transaction so two friends voting
-// at once can't both think they cast the deciding vote.
+// at once can't both think they cast the deciding vote — and the friend
+// count itself is read inside the transaction (not the cached
+// MG.friendCount from sign-in) so a roster change mid-session can't throw
+// the threshold off.
 MG.toggleVote = async function (gameId) {
   const uid = MG.user.uid;
   const ref = MG.db.collection('games').doc(gameId);
   await MG.db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists) return;
+    const friendsSnap = await tx.get(MG.db.collection('friends'));
     const data = snap.data();
     const votes = Object.assign({}, data.votes || {});
     if (votes[uid]) delete votes[uid]; else votes[uid] = true;
 
     const update = { votes };
-    if (data.status === 'proposed' && MG.friendCount > 0 && Object.keys(votes).length >= MG.friendCount) {
+    if (data.status === 'proposed' && friendsSnap.size > 0 && Object.keys(votes).length >= friendsSnap.size) {
       update.status = 'approved';
       update.approvedAt = firebase.firestore.FieldValue.serverTimestamp();
       update.lastActivityAt = firebase.firestore.FieldValue.serverTimestamp();

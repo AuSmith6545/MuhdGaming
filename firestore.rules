@@ -19,8 +19,18 @@ service cloud.firestore {
     // Friend directory: readable by any friend (to show names/avatars),
     // but never writable from the app itself — add/remove friends by
     // hand in the console.
+    //
+    // "get" and "list" are split on purpose: a signed-in user must always
+    // be able to check THEIR OWN doc (get), even if they're not a friend —
+    // that's how the app tells "not on the list yet" apart from "not
+    // signed in". If this only allowed isFriend(), checking your own doc
+    // would be denied outright for a real non-friend, and the app could
+    // never show that state (it would just look like a generic error).
+    // Listing the whole collection (to build the crew roster) stays
+    // friends-only so a non-friend can't enumerate the crew.
     match /friends/{email} {
-      allow read: if isFriend();
+      allow get: if request.auth != null && (request.auth.token.email == email || isFriend());
+      allow list: if isFriend();
       allow write: if false;
     }
 

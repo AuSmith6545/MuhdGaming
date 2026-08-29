@@ -108,6 +108,7 @@ function loadGame() {
 
   ref.collection('milestones').orderBy('order').onSnapshot((snap) => {
     const list = document.getElementById('milestone-list');
+    if (!list) return; // game doc was deleted while this page was open
     if (snap.empty) {
       list.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">No milestones yet — add the first one below.</p>`;
       return;
@@ -140,6 +141,7 @@ function loadGame() {
 
   ref.collection('todos').orderBy('createdAt').onSnapshot((snap) => {
     const list = document.getElementById('todo-list');
+    if (!list) return; // game doc was deleted while this page was open
     if (snap.empty) {
       list.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">Nothing on the list yet.</p>`;
       return;
@@ -159,6 +161,7 @@ function loadGame() {
 
   ref.collection('notes').orderBy('createdAt').onSnapshot((snap) => {
     const list = document.getElementById('notes-list');
+    if (!list) return; // game doc was deleted while this page was open
     if (snap.empty) {
       list.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">No notes yet.</p>`;
       return;
