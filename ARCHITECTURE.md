@@ -50,7 +50,14 @@ friends (collection)           ← the allowlist
 
 joinRequests (collection)      ← self-service "Request Access" queue
   └─ doc per request, ID = requester's uid: email, name, photoURL, requestedAt
+
+users (collection)             ← live profile info, separate from `friends`
+  └─ doc per person, ID = their uid: displayName, photoDataUrl (a small
+     resized/compressed JPEG stored as a data URL — no Storage product
+     needed, comfortably under Firestore's 1MiB document limit)
 ```
+
+**Why names/photos are stored twice.** Every place someone is credited (a game's `proposedBy`, a session's `rsvps`, a note's `authorName`, a milestone/to-do's `createdBy`) freezes their name at the moment they act — that's what lets those render without extra lookups. But it means a renamed friend's *old* activity would still show their old name, which isn't what "change your name" should mean. The `users` collection is the fix: every render resolves through `MG.resolveName(uid, frozenNameFallback)` / `MG.resolveAvatarHtml(...)`, which prefers a friend's live profile and only falls back to the frozen value if they've never visited the Profile page. Changing your name or photo on `profile.html` therefore updates it everywhere you've ever been credited, not just future activity.
 
 **Admins** are just a friend doc with `isAdmin: true` — not hardcoded anywhere, for the same reason the friends list itself isn't (keeps identity out of git regardless of repo visibility). An admin sees a "Pending Requests" panel on the Dashboard: anyone who signs in but isn't yet a friend can hit "Request Access" on the gate screen, which writes a `joinRequests` doc with their exact email already attached — approving is then one click (creates the `friends` doc, clears the request) rather than typing an email into the Firestore console by hand. The console is still there as a fallback for adding/editing friends directly.
 
@@ -91,6 +98,7 @@ recommendations.html  Propose + vote on games
 games.html             Approved game library
 game.html?id=          One game's milestones, to-dos, notes (Steam-achievement suggestions live here)
 calendar.html          Propose + RSVP + browse sessions
+profile.html            Your display name + photo (click the avatar in the nav)
 
 assets/styles.css      The whole visual design system — one file
 assets/app.js          Firebase init, the sign-in/friend gate, the nav bar,

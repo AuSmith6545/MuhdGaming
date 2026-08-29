@@ -50,6 +50,18 @@ service cloud.firestore {
     // can ask for access without needing access to anything else first.
     // Only an admin can list/browse all requests; a requester can still
     // check/cancel their own by ID.
+    // Live profile info (display name, a small avatar image) — separate
+    // from `friends` (the allowlist, admin-managed) on purpose. Any friend
+    // can read anyone's profile (to render "who did this"); you can only
+    // ever write your own. This is what makes a renamed friend show up
+    // correctly on their OLD votes/notes/RSVPs, not just new ones — those
+    // still carry a frozen name/photo from when they were written, but
+    // every render prefers the live profile here when one exists.
+    match /users/{uid} {
+      allow read: if isFriend();
+      allow write: if request.auth != null && uid == request.auth.uid;
+    }
+
     match /joinRequests/{uid} {
       // create AND update share the same condition on purpose: Firestore
       // treats a client's .set() as an "update" whenever the doc already

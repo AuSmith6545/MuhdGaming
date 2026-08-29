@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MuhdGaming — Profile</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Titillium+Web:wght@400;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<div id="mg-nav"></div>
+<div id="mg-gate" class="loading">Loading…</div>
+
+<main id="mg-main" hidden>
+  <div class="wrap" style="padding-top:40px; max-width:560px;">
+    <div class="eyebrow">Profile</div>
+    <h1 style="font-size:32px; margin-top:10px;">Your account</h1>
+
+    <div class="panel chamfer" style="padding:26px; margin-top:24px;">
+      <div class="row" style="gap:18px; align-items:center;">
+        <div id="avatar-preview"></div>
+        <div class="stack" style="gap:8px;">
+          <label class="btn btn-ghost btn-sm" style="width:fit-content; cursor:pointer;">
+            Change Photo
+            <input id="photo-input" type="file" accept="image/*" style="display:none;">
+          </label>
+          <span id="photo-status" class="mono" style="font-size:10.5px; color:var(--ink-dim);"></span>
+        </div>
+      </div>
+
+      <div class="stack" style="margin-top:24px; gap:16px;">
+        <div class="field">
+          <label>Display name</label>
+          <input id="name-input" type="text">
+          <span class="mono" style="font-size:10.5px; color:var(--ink-dim);">Used everywhere you're credited — recommendations, votes, milestones, notes, RSVPs.</span>
+        </div>
+        <div class="field">
+          <label>Email</label>
+          <input id="email-display" type="text" disabled style="opacity:.6; cursor:not-allowed;">
+          <span class="mono" style="font-size:10.5px; color:var(--ink-dim);">Not editable — this is what the crew allowlist is keyed to.</span>
+        </div>
+      </div>
+
+      <div class="row" style="justify-content:space-between; margin-top:26px; padding-top:20px; border-top:1px solid var(--line);">
+        <button id="btn-signout" class="btn btn-ghost">Sign Out</button>
+        <button id="btn-save" class="btn btn-primary">Save Changes</button>
+      </div>
+      <p id="save-error" class="mono" style="color:#ff8a6a; font-size:12px; margin-top:10px;"></p>
+    </div>
+  </div>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="assets/app.js"></script>
+<script>
+let pendingPhotoDataUrl = null;
+
+function renderProfile() {
+  const currentName = MG.resolveName(MG.user.uid, MG.user.displayName);
+  const currentPhoto = MG.resolvePhoto(MG.user.uid, MG.user.photoURL);
+
+  document.getElementById('avatar-preview').innerHTML = MG.avatarHtml(currentName, currentPhoto, 'lg');
+  document.getElementById('name-input').value = currentName;
+  document.getElementById('email-display').value = MG.user.email;
+
+  document.getElementById('photo-input').onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const statusEl = document.getElementById('photo-status');
+    statusEl.textContent = 'Processing…';
+    try {
+      pendingPhotoDataUrl = await MG.resizeImageToDataUrl(file, 200);
+      document.getElementById('avatar-preview').innerHTML = MG.avatarHtml(
+        document.getElementById('name-input').value.trim() || currentName, pendingPhotoDataUrl, 'lg'
+      );
+      statusEl.textContent = 'New photo ready — click Save Changes to keep it.';
+    } catch (err) {
+      statusEl.textContent = err.message;
+    }
+  };
+
+  document.getElementById('btn-save').onclick = () => {
+    const name = document.getElementById('name-input').value.trim();
+    const errorEl = document.getElementById('save-error');
+    if (!name) { errorEl.textContent = 'Display name is required.'; return; }
+    const btn = document.getElementById('btn-save');
+    btn.disabled = true;
+    MG.saveProfile({ displayName: name, photoDataUrl: pendingPhotoDataUrl }).catch((err) => {
+      errorEl.textContent = err.message;
+      btn.disabled = false;
+    });
+  };
+
+  document.getElementById('btn-signout').onclick = () => MG.auth.signOut();
+}
+
+MG.ready('profile', renderProfile);
+</script>
+</body>
+</html>

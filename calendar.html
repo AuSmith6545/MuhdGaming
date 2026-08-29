@@ -163,8 +163,8 @@ function renderDetail() {
         ? `<p style="color:var(--ink-dim); font-size:13px;">No responses yet.</p>`
         : respondents.map(([uid, r]) => `
             <div class="row">
-              ${MG.avatarHtml(r.name, r.photoURL, 'sm')}
-              <span style="font-size:13px; flex:1;">${uid === MG.user.uid ? 'You' : MG.escapeHtml(r.name)}</span>
+              ${MG.resolveAvatarHtml(uid, r.name, r.photoURL, 'sm')}
+              <span style="font-size:13px; flex:1;">${uid === MG.user.uid ? 'You' : MG.escapeHtml(MG.resolveName(uid, r.name))}</span>
               <span class="chip${r.choice === 'yes' ? ' chip-accent' : ''}">${MG.escapeHtml(r.choice)}</span>
             </div>`).join('')}
     </div>

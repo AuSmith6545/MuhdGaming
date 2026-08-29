@@ -22,6 +22,7 @@ const MG = {
   friendCount: 0,
   isFriend: false,
   isAdmin: false,
+  userProfiles: {}, // uid -> {displayName, photoDataUrl}, see MG.resolveName/resolveAvatar
   STEAM_PROXY: 'https://muhdgaming-steam-proxy.ausmithdesign.workers.dev',
 };
 window.MG = MG;
@@ -67,9 +68,61 @@ MG.formatDateTime = function (date) {
 };
 
 MG.avatarHtml = function (name, photoURL, size) {
-  const cls = 'avatar' + (size === 'sm' ? ' sm' : '');
+  const cls = 'avatar' + (size === 'sm' ? ' sm' : size === 'lg' ? ' lg' : '');
   if (photoURL) return `<div class="${cls} chamfer-xs"><img src="${MG.escapeHtml(photoURL)}" alt=""></div>`;
   return `<div class="${cls} chamfer-xs">${MG.escapeHtml(MG.initials(name))}</div>`;
+};
+
+// Prefers the live users/{uid} profile over whatever name/photo was frozen
+// into a doc at write time — this is what makes a rename retroactive.
+// Falls back to the frozen values (for anyone who's never set a custom
+// profile) and finally to a plain "A friend" / no-photo state.
+MG.resolveName = function (uid, fallbackName) {
+  const profile = uid && MG.userProfiles[uid];
+  return (profile && profile.displayName) || fallbackName || 'A friend';
+};
+MG.resolvePhoto = function (uid, fallbackPhoto) {
+  const profile = uid && MG.userProfiles[uid];
+  return (profile && profile.photoDataUrl) || fallbackPhoto || null;
+};
+MG.resolveAvatarHtml = function (uid, fallbackName, fallbackPhoto, size) {
+  return MG.avatarHtml(MG.resolveName(uid, fallbackName), MG.resolvePhoto(uid, fallbackPhoto), size);
+};
+
+// Reads an <input type="file">'s image, downscales it to fit maxSize and
+// compresses it to a JPEG data URL — small enough to store directly as a
+// Firestore field (comfortably under its 1MiB document limit) with no
+// separate file-storage service needed.
+MG.resizeImageToDataUrl = function (file, maxSize) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Couldn't read that file."));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("That doesn't look like an image."));
+      img.onload = () => {
+        const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
+// Saves the current friend's display name and (optional) photo, then
+// reloads — simplest way to guarantee every cached/frozen value across the
+// app (MG.user, MG.userProfiles, the nav) reflects the change consistently,
+// same reasoning as the reload after email/password sign-up above.
+MG.saveProfile = async function (fields) {
+  const update = { displayName: fields.displayName };
+  if (fields.photoDataUrl) update.photoDataUrl = fields.photoDataUrl;
+  await MG.db.collection('users').doc(MG.user.uid).set(update, { merge: true });
+  location.reload();
 };
 
 MG.parseSteamAppId = function (input) {
@@ -121,7 +174,7 @@ function renderNav(activePage) {
     <div class="links">${linksHtml}</div>
     <div class="row" style="margin-left:auto;">
       <span class="mono" style="font-size:11px; color:var(--ink-dim);">${MG.friendCount} IN CREW</span>
-      ${user ? MG.avatarHtml(user.displayName, user.photoURL) : ''}
+      ${user ? `<a href="profile.html" title="Your profile">${MG.resolveAvatarHtml(user.uid, user.displayName, user.photoURL)}</a>` : ''}
       <button id="mg-signout" class="btn btn-ghost btn-sm">Sign out</button>
     </div>
   `;
@@ -268,6 +321,10 @@ MG.ready = function (activePage, onReady) {
       MG.friends = friendsSnap.docs.map(d => ({ email: d.id, ...d.data() }));
       MG.friendCount = MG.friends.length;
 
+      const usersSnap = await MG.db.collection('users').get();
+      MG.userProfiles = {};
+      usersSnap.docs.forEach((d) => { MG.userProfiles[d.id] = d.data(); });
+
       renderNav(activePage);
       showGate('ready');
       onReady(user);
@@ -400,7 +457,7 @@ MG.addMilestone = async function (gameId, title) {
   const ref = MG.db.collection('games').doc(gameId).collection('milestones').doc();
   batch.set(ref, {
     title, status: 'todo', order: Date.now(),
-    createdBy: MG.user.displayName,
+    createdBy: MG.user.displayName, createdByUid: MG.user.uid,
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   });
@@ -422,7 +479,7 @@ MG.addTodo = async function (gameId, text) {
   const ref = MG.db.collection('games').doc(gameId).collection('todos').doc();
   batch.set(ref, {
     text, done: false, assignedTo: null,
-    createdBy: MG.user.displayName,
+    createdBy: MG.user.displayName, createdByUid: MG.user.uid,
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   });

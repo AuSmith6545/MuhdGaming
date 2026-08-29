@@ -136,7 +136,7 @@ function loadGame() {
             <div style="font-weight:600; color:var(--ink-strong); font-size:15px;">${MG.escapeHtml(m.title)}</div>
             <div class="mono" style="font-size:10.5px; color:var(--ink-dim); margin-top:4px;">${
               m.status === 'done' ? 'DONE' : m.status === 'doing' ? 'IN PROGRESS' : 'NOT STARTED'
-            }${m.createdBy ? ' · ' + MG.escapeHtml(m.createdBy) : ''}</div>
+            }${m.createdBy ? ' · ' + MG.escapeHtml(MG.resolveName(m.createdByUid, m.createdBy)) : ''}</div>
           </div>
         </div>`;
     }).join('');
@@ -178,11 +178,12 @@ function loadGame() {
     list.innerHTML = snap.docs.map((d) => {
       const n = d.data();
       const when = MG.toDate(n.createdAt);
+      const authorName = MG.resolveName(n.authorUid, n.authorName);
       return `
         <div class="row" style="align-items:flex-start;">
-          ${MG.avatarHtml(n.authorName, n.authorPhoto)}
+          ${MG.resolveAvatarHtml(n.authorUid, n.authorName, n.authorPhoto)}
           <div>
-            <div style="font-size:13px;"><span style="color:var(--ink-strong); font-weight:600;">${MG.escapeHtml(n.authorName)}</span> <span class="mono" style="color:var(--ink-dim); font-size:10.5px;">· ${when ? MG.escapeHtml(MG.timeAgo(when).toUpperCase()) : ''}</span></div>
+            <div style="font-size:13px;"><span style="color:var(--ink-strong); font-weight:600;">${MG.escapeHtml(authorName)}</span> <span class="mono" style="color:var(--ink-dim); font-size:10.5px;">· ${when ? MG.escapeHtml(MG.timeAgo(when).toUpperCase()) : ''}</span></div>
             <div style="font-size:14px; margin-top:4px;">${MG.escapeHtml(n.text)}</div>
           </div>
         </div>`;
