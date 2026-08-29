@@ -39,6 +39,18 @@ Google sign-in proves *who* someone is, not that they're allowed in. Firestore S
 
 Adding a friend = adding one document to the `friends` collection by hand in the Firebase console (Firestore Database → Data tab), doc ID = their email. No code change, no git commit, no redeploy.
 
+## Future extension: Steam integration
+
+Firestore/Auth work by letting the browser talk to Firebase directly, which is why no server was needed for the core site. Steam's APIs don't allow that (no CORS support, and achievement data needs a secret API key), so reaching Steam requires one small server-side piece in between — a **Cloudflare Worker** (free tier, no billing info required, ~100k requests/day). Written once, not maintained per game.
+
+What it enables, roughly in build order:
+
+1. **Auto-fill on recommend** — paste a Steam store URL, the Worker fetches title, description, cover image, platforms, and co-op tags from Steam and pre-fills the recommendation form.
+2. **Suggested milestones from real achievements** — on approval, pull the game's actual Steam achievement list as a starting milestone checklist instead of a blank board; the group picks which ones matter.
+3. **Self-updating milestones (stretch goal)** — each friend links their Steam ID once; the Worker checks who's actually unlocked which achievement and auto-checks the matching milestone. Real but a bigger lift than 1–2: needs public Steam profiles and the first recurring background job in the stack (rather than fetch-on-demand). Worth revisiting after 1–2 are live, not blocking them.
+
+Since everyone in the group already uses Steam, this is likely worth building at initial release or as a quick follow-up rather than a distant nice-to-have.
+
 ## One-time setup checklist
 
 1. Create a Firebase project at console.firebase.google.com
