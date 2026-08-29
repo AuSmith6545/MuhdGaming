@@ -1,25 +1,47 @@
 rules_version = '2';
 
-// This file is the source of truth for who can read/write our data —
-// but Firebase doesn't read it from GitHub automatically. Whenever you
-// change it, copy/paste the whole file into:
+// The friend allowlist itself lives in Firestore's `friends` collection
+// (doc ID = the friend's email), NOT in this file — so no one's email
+// address ever ends up in git, public repo or not. Manage that collection
+// by hand in Firebase Console -> Firestore Database -> Data tab.
+//
+// Whenever you change the rules below, copy/paste this whole file into:
 // Firebase Console -> Firestore Database -> Rules -> paste -> Publish
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isAllowedFriend() {
+    function isFriend() {
       return request.auth != null &&
-        request.auth.token.email in [
-          // TODO: replace with your real friend group's emails
-          'ausmithdesign@gmail.com'
-        ];
+        exists(/databases/$(database)/documents/friends/$(request.auth.token.email));
     }
 
-    // Everything in the database uses the same rule for now: only
-    // signed-in friends on the allowlist above may read or write.
-    match /{document=**} {
-      allow read, write: if isAllowedFriend();
+    // Friend directory: readable by any friend (to show names/avatars),
+    // but never writable from the app itself — add/remove friends by
+    // hand in the console.
+    match /friends/{email} {
+      allow read: if isFriend();
+      allow write: if false;
+    }
+
+    match /games/{gameId} {
+      allow read, write: if isFriend();
+
+      match /milestones/{milestoneId} {
+        allow read, write: if isFriend();
+      }
+      match /todos/{todoId} {
+        allow read, write: if isFriend();
+      }
+    }
+
+    match /sessions/{sessionId} {
+      allow read, write: if isFriend();
+    }
+
+    match /pings/{pingId} {
+      // temporary: used only by the index.html connection test
+      allow read, write: if isFriend();
     }
   }
 }

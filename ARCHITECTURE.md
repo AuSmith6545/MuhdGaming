@@ -35,7 +35,9 @@ friends (collection)           ← profile info, filled in on first sign-in
 
 ## Access control
 
-Google sign-in proves *who* someone is, not that they're allowed in. Firestore Security Rules restrict all reads/writes to a hardcoded allowlist of friends' email addresses (see `firestore.rules`). Adding a friend = adding their email to that list and republishing the rule in the Firebase console (no redeploy of the site needed).
+Google sign-in proves *who* someone is, not that they're allowed in. Firestore Security Rules restrict all reads/writes to friends listed in a `friends` collection in Firestore itself (see `firestore.rules`) — **not** hardcoded in this repo. That's deliberate: none of your friends' emails, and nothing they type anywhere on the site (recommendations, comments, to-do text, calendar entries), ever touches git or GitHub. It all lives only in Firestore, gated by these rules.
+
+Adding a friend = adding one document to the `friends` collection by hand in the Firebase console (Firestore Database → Data tab), doc ID = their email. No code change, no git commit, no redeploy.
 
 ## One-time setup checklist
 
