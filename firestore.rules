@@ -45,11 +45,6 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // A friend request: anyone signed in (not just existing friends) can
-    // create their OWN request (doc ID = their uid), so a not-yet-friend
-    // can ask for access without needing access to anything else first.
-    // Only an admin can list/browse all requests; a requester can still
-    // check/cancel their own by ID.
     // Live profile info (display name, a small avatar image) — separate
     // from `friends` (the allowlist, admin-managed) on purpose. Any friend
     // can read anyone's profile (to render "who did this"); you can only
@@ -62,6 +57,11 @@ service cloud.firestore {
       allow write: if isFriend() && uid == request.auth.uid;
     }
 
+    // A friend request: anyone signed in (not just existing friends) can
+    // create their OWN request (doc ID = their uid), so a not-yet-friend
+    // can ask for access without needing access to anything else first.
+    // Only an admin can list/browse all requests; a requester can still
+    // check/cancel their own by ID.
     match /joinRequests/{uid} {
       // create AND update share the same condition on purpose: Firestore
       // treats a client's .set() as an "update" whenever the doc already
