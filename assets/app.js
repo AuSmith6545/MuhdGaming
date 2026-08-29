@@ -95,18 +95,31 @@ MG.resolveAvatarHtml = function (uid, fallbackName, fallbackPhoto, size) {
 // separate file-storage service needed.
 MG.resizeImageToDataUrl = function (file, maxSize) {
   return new Promise((resolve, reject) => {
+    if (file.size > 20 * 1024 * 1024) {
+      reject(new Error('That image is too large (max 20MB).'));
+      return;
+    }
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("Couldn't read that file."));
     reader.onload = () => {
       const img = new Image();
       img.onerror = () => reject(new Error("That doesn't look like an image."));
       img.onload = () => {
-        const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
-        const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', 0.82));
+        // The draw/encode step below runs inside this async callback, so a
+        // thrown error here would otherwise never reach the reject() path
+        // above — it'd be an unhandled exception and this promise would
+        // simply never settle, leaving the caller's "Processing…" state
+        // stuck forever with no error and no way to retry.
+        try {
+          const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+          const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.82));
+        } catch (err) {
+          reject(err);
+        }
       };
       img.src = reader.result;
     };
@@ -120,7 +133,16 @@ MG.resizeImageToDataUrl = function (file, maxSize) {
 // same reasoning as the reload after email/password sign-up above.
 MG.saveProfile = async function (fields) {
   const update = { displayName: fields.displayName };
-  if (fields.photoDataUrl) update.photoDataUrl = fields.photoDataUrl;
+  if (fields.photoDataUrl) {
+    // Guard against ever silently exceeding Firestore's ~1MiB document
+    // limit — not currently reachable with resizeImageToDataUrl's default
+    // maxSize, but this fails with a clear message instead of a cryptic
+    // Firestore error if that ever changes.
+    if (fields.photoDataUrl.length > 700 * 1024) {
+      throw new Error('That photo is too large after processing — try a different image.');
+    }
+    update.photoDataUrl = fields.photoDataUrl;
+  }
   await MG.db.collection('users').doc(MG.user.uid).set(update, { merge: true });
   location.reload();
 };

@@ -150,7 +150,7 @@ function renderDetail() {
   panel.innerHTML = `
     <div class="eyebrow">Selected Session</div>
     <h2 style="font-size:22px; margin-top:10px;">${MG.escapeHtml(s.gameTitle)}</h2>
-    <div class="mono" style="font-size:11px; color:var(--ink-dim); margin-top:6px;">${MG.escapeHtml(MG.formatDateTime(s.when).toUpperCase())} · PROPOSED BY ${MG.escapeHtml(s.proposedBy && s.proposedBy.name || '')}</div>
+    <div class="mono" style="font-size:11px; color:var(--ink-dim); margin-top:6px;">${MG.escapeHtml(MG.formatDateTime(s.when).toUpperCase())} · PROPOSED BY ${MG.escapeHtml(MG.resolveName(s.proposedBy && s.proposedBy.uid, s.proposedBy && s.proposedBy.name))}</div>
 
     ${s.status === 'accepted'
       ? `<span class="chip chip-live" style="margin-top:16px; width:fit-content;">Accepted</span>`

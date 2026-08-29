@@ -70,7 +70,12 @@ function renderProfile() {
     const file = e.target.files[0];
     if (!file) return;
     const statusEl = document.getElementById('photo-status');
+    const saveBtn = document.getElementById('btn-save');
     statusEl.textContent = 'Processing…';
+    // Disabled while processing so Save can't fire with a photo that
+    // hasn't finished resizing yet — it would otherwise silently save
+    // without the new photo and only surface that after a reload.
+    saveBtn.disabled = true;
     try {
       pendingPhotoDataUrl = await MG.resizeImageToDataUrl(file, 200);
       document.getElementById('avatar-preview').innerHTML = MG.avatarHtml(
@@ -79,6 +84,8 @@ function renderProfile() {
       statusEl.textContent = 'New photo ready — click Save Changes to keep it.';
     } catch (err) {
       statusEl.textContent = err.message;
+    } finally {
+      saveBtn.disabled = false;
     }
   };
 
