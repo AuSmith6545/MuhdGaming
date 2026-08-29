@@ -16,9 +16,19 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/friends/$(request.auth.token.email));
     }
 
-    // Friend directory: readable by any friend (to show names/avatars),
-    // but never writable from the app itself — add/remove friends by
-    // hand in the console.
+    // An admin is just a friend doc with isAdmin: true — set by hand in the
+    // console (on your own doc: Firestore Database -> Data -> friends ->
+    // your email -> add field isAdmin (boolean) = true). Not hardcoded here,
+    // for the same reason the friends list itself isn't: keeps identity out
+    // of git regardless of repo visibility.
+    function isAdmin() {
+      return isFriend() &&
+        get(/databases/$(database)/documents/friends/$(request.auth.token.email)).data.isAdmin == true;
+    }
+
+    // Friend directory: readable by any friend (to show names/avatars).
+    // Writable only by an admin — normally through the "approve a request"
+    // flow in the app, though hand-editing in the console still works too.
     //
     // "get" and "list" are split on purpose: a signed-in user must always
     // be able to check THEIR OWN doc (get), even if they're not a friend —
@@ -31,7 +41,23 @@ service cloud.firestore {
     match /friends/{email} {
       allow get: if request.auth != null && (request.auth.token.email == email || isFriend());
       allow list: if isFriend();
-      allow write: if false;
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // A friend request: anyone signed in (not just existing friends) can
+    // create their OWN request (doc ID = their uid), so a not-yet-friend
+    // can ask for access without needing access to anything else first.
+    // Only an admin can list/browse all requests; a requester can still
+    // check/cancel their own by ID.
+    match /joinRequests/{uid} {
+      allow create: if request.auth != null
+        && uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email;
+      allow get: if request.auth != null && (uid == request.auth.uid || isAdmin());
+      allow list: if isAdmin();
+      allow delete: if request.auth != null && (uid == request.auth.uid || isAdmin());
+      allow update: if false;
     }
 
     match /games/{gameId} {

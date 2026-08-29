@@ -45,9 +45,14 @@ sessions (collection)          ← the calendar
      keyed by email, not uid, so there'd otherwise be no way to resolve whose
      vote is whose when rendering the list
 
-friends (collection)           ← the allowlist, managed by hand in the console
-  └─ doc per friend, ID = email: displayName, photoURL
+friends (collection)           ← the allowlist
+  └─ doc per friend, ID = email: displayName, photoURL, isAdmin (optional bool)
+
+joinRequests (collection)      ← self-service "Request Access" queue
+  └─ doc per request, ID = requester's uid: email, name, photoURL, requestedAt
 ```
+
+**Admins** are just a friend doc with `isAdmin: true` — not hardcoded anywhere, for the same reason the friends list itself isn't (keeps identity out of git regardless of repo visibility). An admin sees a "Pending Requests" panel on the Dashboard: anyone who signs in but isn't yet a friend can hit "Request Access" on the gate screen, which writes a `joinRequests` doc with their exact email already attached — approving is then one click (creates the `friends` doc, clears the request) rather than typing an email into the Firestore console by hand. The console is still there as a fallback for adding/editing friends directly.
 
 **No server-side approval/acceptance logic exists** — since the site is 100% static, the "unanimous vote → approved" and "enough RSVPs → accepted" rules run client-side: whoever casts the deciding vote/RSVP is whose browser writes the status change, inside a Firestore transaction (so two friends acting at once can't race into a bad state). All Firestore queries deliberately use only single-field equality filters with client-side sorting — no `orderBy` combined with a `where` on a different field — so the app never needs a Firestore composite index to be created by hand.
 

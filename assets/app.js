@@ -21,6 +21,7 @@ const MG = {
   friends: [],
   friendCount: 0,
   isFriend: false,
+  isAdmin: false,
   STEAM_PROXY: 'https://muhdgaming-steam-proxy.ausmithdesign.workers.dev',
 };
 window.MG = MG;
@@ -207,12 +208,34 @@ function showGate(state, message) {
     };
   } else if (state === 'not-friend') {
     gate.className = 'empty-state';
+    const user = MG.auth.currentUser;
     gate.innerHTML = `
       <p style="color:var(--ink-strong); font-size:16px;">This account isn't on the crew list yet.</p>
-      <p style="margin-top:8px;">Ask whoever set this up to add <strong>${MG.escapeHtml(MG.auth.currentUser && MG.auth.currentUser.email || '')}</strong> in Firebase.</p>
+      <p style="margin-top:8px;">${MG.escapeHtml((user && user.email) || '')}</p>
+      <div id="mg-request-area" style="margin-top:16px;">
+        <p class="mono" style="font-size:11px; color:var(--ink-dim);">Checking for a pending request…</p>
+      </div>
       <button id="mg-signout2" class="btn btn-ghost" style="margin-top:16px;">Sign out</button>
     `;
     document.getElementById('mg-signout2').onclick = () => MG.auth.signOut();
+
+    const areaEl = document.getElementById('mg-request-area');
+    MG.db.collection('joinRequests').doc(user.uid).get().then((reqDoc) => {
+      if (reqDoc.exists) {
+        areaEl.innerHTML = `<p style="color:var(--accent);">Request sent — you'll get access once it's approved.</p>`;
+        return;
+      }
+      areaEl.innerHTML = `<button id="mg-request-access" class="btn btn-primary">Request Access</button>`;
+      document.getElementById('mg-request-access').onclick = () => {
+        MG.requestAccess().then(() => {
+          areaEl.innerHTML = `<p style="color:var(--accent);">Request sent — you'll get access once it's approved.</p>`;
+        }).catch((err) => {
+          areaEl.innerHTML = `<p class="mono" style="color:#ff8a6a; font-size:12px;">${MG.escapeHtml(err.message)}</p>`;
+        });
+      };
+    }).catch((err) => {
+      areaEl.innerHTML = `<p class="mono" style="color:#ff8a6a; font-size:12px;">${MG.escapeHtml(err.message)}</p>`;
+    });
   } else if (state === 'error') {
     gate.className = 'empty-state';
     gate.textContent = message || 'Something went wrong.';
@@ -238,6 +261,7 @@ MG.ready = function (activePage, onReady) {
         return;
       }
       MG.isFriend = true;
+      MG.isAdmin = !!friendDoc.data().isAdmin;
 
       const friendsSnap = await MG.db.collection('friends').get();
       MG.friends = friendsSnap.docs.map(d => ({ email: d.id, ...d.data() }));
@@ -489,6 +513,34 @@ MG.updateSession = async function (sessionId, fields) {
 // doc (and its RSVP history) isn't deleted.
 MG.cancelSession = async function (sessionId) {
   await MG.db.collection('sessions').doc(sessionId).update({ status: 'cancelled' });
+};
+
+/* ---------- join requests (self-service "Request Access") ---------- */
+
+// Doc ID is the requester's own uid, so a repeat click upserts instead of
+// piling up duplicate requests.
+MG.requestAccess = async function () {
+  const user = MG.auth.currentUser;
+  await MG.db.collection('joinRequests').doc(user.uid).set({
+    email: user.email,
+    name: user.displayName || user.email,
+    photoURL: user.photoURL || null,
+    requestedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+};
+
+// Admin-only (enforced by firestore.rules, not just this function): creates
+// the friend doc — the email is already known exactly, no typing required —
+// then clears the request.
+MG.approveRequest = async function (uid, email, name) {
+  const batch = MG.db.batch();
+  batch.set(MG.db.collection('friends').doc(email), { displayName: name });
+  batch.delete(MG.db.collection('joinRequests').doc(uid));
+  await batch.commit();
+};
+
+MG.declineRequest = async function (uid) {
+  await MG.db.collection('joinRequests').doc(uid).delete();
 };
 
 /* ---------- shared modals (used from Dashboard, Recommendations, Calendar) ---------- */
