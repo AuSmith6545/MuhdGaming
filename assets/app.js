@@ -147,15 +147,63 @@ function showGate(state, message) {
   } else if (state === 'signed-out') {
     gate.className = 'empty-state';
     gate.innerHTML = `
-      <p style="margin-bottom:16px; color:var(--ink-strong); font-size:16px;">Sign in to see the crew's games.</p>
-      <button id="mg-signin" class="btn btn-primary">Sign in with Google</button>
-      <p id="mg-signin-err" class="mono" style="color:#ff8a6a; margin-top:14px; font-size:12px;"></p>
+      <div class="stack" style="max-width:320px; margin:0 auto; text-align:left;">
+        <p style="text-align:center; color:var(--ink-strong); font-size:16px;">Sign in to see the crew's games.</p>
+        <button id="mg-signin-google" class="btn btn-primary">Sign in with Google</button>
+
+        <div class="row" style="align-items:center; gap:10px; margin:6px 0;">
+          <div style="flex:1; height:1px; background:var(--line);"></div>
+          <span class="mono" style="font-size:10px; color:var(--ink-dim);">OR AN EMAIL ACCOUNT</span>
+          <div style="flex:1; height:1px; background:var(--line);"></div>
+        </div>
+
+        <div class="field"><label>Name (only needed to create an account)</label><input id="mg-name" type="text"></div>
+        <div class="field"><label>Email</label><input id="mg-email" type="email"></div>
+        <div class="field"><label>Password</label><input id="mg-password" type="password"></div>
+        <div class="row" style="gap:8px;">
+          <button id="mg-email-signin" class="btn btn-ghost" style="flex:1;">Sign In</button>
+          <button id="mg-email-signup" class="btn btn-ghost" style="flex:1;">Create Account</button>
+        </div>
+        <button id="mg-forgot" class="mono" type="button" style="background:none; border:none; color:var(--ink-dim); font-size:11px; text-align:left; padding:0; cursor:pointer; width:fit-content;">Forgot password?</button>
+
+        <p id="mg-signin-err" class="mono" style="color:#ff8a6a; font-size:12px;"></p>
+      </div>
     `;
-    document.getElementById('mg-signin').onclick = () => {
+    const errEl = document.getElementById('mg-signin-err');
+    const showErr = (err) => { errEl.textContent = err.message || String(err); };
+
+    document.getElementById('mg-signin-google').onclick = () => {
       const provider = new firebase.auth.GoogleAuthProvider();
-      MG.auth.signInWithPopup(provider).catch(err => {
-        document.getElementById('mg-signin-err').textContent = err.message;
-      });
+      MG.auth.signInWithPopup(provider).catch(showErr);
+    };
+    document.getElementById('mg-email-signin').onclick = () => {
+      const email = document.getElementById('mg-email').value.trim();
+      const password = document.getElementById('mg-password').value;
+      MG.auth.signInWithEmailAndPassword(email, password).catch(showErr);
+    };
+    document.getElementById('mg-email-signup').onclick = async () => {
+      const name = document.getElementById('mg-name').value.trim();
+      const email = document.getElementById('mg-email').value.trim();
+      const password = document.getElementById('mg-password').value;
+      if (!name) { showErr({ message: 'Enter your name to create an account.' }); return; }
+      try {
+        const cred = await MG.auth.createUserWithEmailAndPassword(email, password);
+        await cred.user.updateProfile({ displayName: name });
+        // onAuthStateChanged already fired (before the profile update finished), so
+        // the rest of the app would otherwise render with a blank name — a full
+        // reload is the simplest way to guarantee it picks up the name that was
+        // just set, rather than chasing stale-state edge cases here.
+        location.reload();
+      } catch (err) {
+        showErr(err);
+      }
+    };
+    document.getElementById('mg-forgot').onclick = () => {
+      const email = document.getElementById('mg-email').value.trim();
+      if (!email) { showErr({ message: 'Enter your email first, then click this again.' }); return; }
+      MG.auth.sendPasswordResetEmail(email)
+        .then(() => { errEl.style.color = 'var(--accent)'; errEl.textContent = 'Password reset email sent.'; })
+        .catch(showErr);
     };
   } else if (state === 'not-friend') {
     gate.className = 'empty-state';

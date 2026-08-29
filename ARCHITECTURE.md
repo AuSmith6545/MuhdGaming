@@ -95,6 +95,10 @@ assets/app.js          Firebase init, the sign-in/friend gate, the nav bar,
 
 Each page's own inline `<script>` only reads data and renders — the actual writes all funnel through `assets/app.js` so the transaction logic only has to be correct in one place.
 
+## Sign-in methods
+
+Google sign-in is the default, but Firebase Authentication → Sign-in method also has **Email/Password** enabled, for any friend who doesn't have or doesn't want to use a Google account — they create an account with any email address and a password they choose instead. Both methods populate the same `request.auth.token.email` that the security rules and the friends allowlist check, so nothing else about the app treats the two differently: adding that friend's email to the `friends` collection in the console is the exact same step either way.
+
 ## One-time setup checklist
 
 1. Create a Firebase project at console.firebase.google.com
