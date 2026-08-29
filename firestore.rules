@@ -51,13 +51,17 @@ service cloud.firestore {
     // Only an admin can list/browse all requests; a requester can still
     // check/cancel their own by ID.
     match /joinRequests/{uid} {
-      allow create: if request.auth != null
+      // create AND update share the same condition on purpose: Firestore
+      // treats a client's .set() as an "update" whenever the doc already
+      // exists (regardless of set() vs update()), so without this a second
+      // click (or a retried write after a network blip) would be denied
+      // instead of harmlessly upserting the same request.
+      allow create, update: if request.auth != null
         && uid == request.auth.uid
         && request.resource.data.email == request.auth.token.email;
       allow get: if request.auth != null && (uid == request.auth.uid || isAdmin());
       allow list: if isAdmin();
       allow delete: if request.auth != null && (uid == request.auth.uid || isAdmin());
-      allow update: if false;
     }
 
     match /games/{gameId} {

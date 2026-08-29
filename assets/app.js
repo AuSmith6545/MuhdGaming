@@ -226,7 +226,8 @@ function showGate(state, message) {
         return;
       }
       areaEl.innerHTML = `<button id="mg-request-access" class="btn btn-primary">Request Access</button>`;
-      document.getElementById('mg-request-access').onclick = () => {
+      document.getElementById('mg-request-access').onclick = (e) => {
+        e.target.disabled = true;
         MG.requestAccess().then(() => {
           areaEl.innerHTML = `<p style="color:var(--accent);">Request sent — you'll get access once it's approved.</p>`;
         }).catch((err) => {
@@ -534,7 +535,10 @@ MG.requestAccess = async function () {
 // then clears the request.
 MG.approveRequest = async function (uid, email, name) {
   const batch = MG.db.batch();
-  batch.set(MG.db.collection('friends').doc(email), { displayName: name });
+  // merge: true — if this email already has a friend doc (e.g. an admin
+  // pre-provisioned it with isAdmin: true before the person requested
+  // access), approving must not silently wipe that out.
+  batch.set(MG.db.collection('friends').doc(email), { displayName: name }, { merge: true });
   batch.delete(MG.db.collection('joinRequests').doc(uid));
   await batch.commit();
 };
