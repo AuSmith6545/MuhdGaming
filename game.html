@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MuhdGaming — Game</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Titillium+Web:wght@400;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<div id="mg-nav"></div>
+<div id="mg-gate" class="loading">Loading…</div>
+
+<main id="mg-main" hidden>
+  <div id="banner" class="wrap chamfer" style="margin-top:40px; height:160px; position:relative; background:linear-gradient(135deg,#161c22,#10141a);">
+    <div class="bracket" style="top:14px; right:14px; border-top:2px solid #fff; border-right:2px solid #fff;"></div>
+    <div class="bracket" style="bottom:14px; left:14px; border-bottom:2px solid #fff; border-left:2px solid #fff;"></div>
+    <div class="row" style="position:absolute; left:28px; bottom:22px; right:28px; align-items:flex-end; justify-content:space-between;">
+      <div>
+        <div id="banner-eyebrow" class="eyebrow">Approved</div>
+        <h1 id="banner-title" style="font-size:34px; margin-top:8px;">…</h1>
+        <div id="banner-tags" class="row" style="gap:8px; margin-top:12px; flex-wrap:wrap;"></div>
+      </div>
+      <a id="banner-link" href="#" target="_blank" class="mono chip" style="text-decoration:none; display:none;">VIEW ON STEAM ↗</a>
+    </div>
+  </div>
+
+  <div class="wrap grid-2" style="padding:28px 40px;">
+
+    <div class="panel chamfer" style="padding:22px;">
+      <div class="row" style="justify-content:space-between;">
+        <div class="eyebrow">Milestones</div>
+        <button id="btn-suggest-steam" class="btn btn-ghost btn-sm" style="display:none;">Suggest from Steam</button>
+      </div>
+      <div id="milestone-list" style="margin-top:18px;"></div>
+      <form id="milestone-form" class="row" style="margin-top:16px; border-top:1px solid var(--line); padding-top:16px;">
+        <input id="milestone-input" type="text" placeholder="Add a milestone…" style="flex:1; background:var(--panel-2); border:1px solid var(--line-bright); color:var(--ink-strong); padding:9px 12px; font-family:inherit;">
+        <button class="btn btn-ghost btn-sm" type="submit">Add</button>
+      </form>
+    </div>
+
+    <div class="panel chamfer" style="padding:22px;">
+      <div class="eyebrow">To-dos</div>
+      <div id="todo-list" class="stack" style="margin-top:18px;"></div>
+      <form id="todo-form" class="row" style="margin-top:16px; border-top:1px solid var(--line); padding-top:16px;">
+        <input id="todo-input" type="text" placeholder="Add a to-do…" style="flex:1; background:var(--panel-2); border:1px solid var(--line-bright); color:var(--ink-strong); padding:9px 12px; font-family:inherit;">
+        <button class="btn btn-ghost btn-sm" type="submit">Add</button>
+      </form>
+    </div>
+
+  </div>
+
+  <div class="wrap" style="padding:0 40px 60px;">
+    <div class="panel chamfer" style="padding:22px;">
+      <div class="eyebrow">Notes</div>
+      <div id="notes-list" class="stack" style="margin-top:18px;"></div>
+      <form id="note-form" class="row" style="margin-top:20px; border-top:1px solid var(--line); padding-top:16px;">
+        <input id="note-input" type="text" placeholder="Add a note…" style="flex:1; background:var(--panel-2); border:1px solid var(--line-bright); color:var(--ink-strong); padding:10px 14px; font-family:inherit;">
+        <button class="btn btn-primary btn-sm" type="submit">Post</button>
+      </form>
+    </div>
+  </div>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="assets/app.js"></script>
+<script>
+const gameId = new URLSearchParams(location.search).get('id');
+const STEP_ORDER = ['todo', 'doing', 'done'];
+
+function loadGame() {
+  if (!gameId) {
+    document.getElementById('mg-main').innerHTML = `<div class="empty-state">No game selected. Go back to <a href="games.html">Games</a>.</div>`;
+    return;
+  }
+  const ref = MG.db.collection('games').doc(gameId);
+
+  ref.onSnapshot((doc) => {
+    if (!doc.exists) {
+      document.getElementById('mg-main').innerHTML = `<div class="empty-state">This game doesn't exist anymore.</div>`;
+      return;
+    }
+    const g = doc.data();
+    document.title = `MuhdGaming — ${g.title}`;
+    document.getElementById('banner-title').textContent = g.title;
+    const voteCount = Object.keys(g.votes || {}).length;
+    document.getElementById('banner-eyebrow').textContent = `Approved // ${voteCount} of ${MG.friendCount} friends`;
+    if (g.image) document.getElementById('banner').style.background = `linear-gradient(0deg, rgba(9,11,13,.55), rgba(9,11,13,.75)), url('${g.image.replace(/'/g, "%27")}') center/cover`;
+
+    const tags = [...(g.platforms || []).slice(0, 1), ...(g.genres || []).slice(0, 2),
+      `${g.minPlayers || 1}–${g.maxPlayers || g.minPlayers || 1} Players`];
+    document.getElementById('banner-tags').innerHTML = tags.filter(Boolean).map((t) => `<span class="chip">${MG.escapeHtml(t)}</span>`).join('');
+
+    const linkEl = document.getElementById('banner-link');
+    if (g.storeUrl) { linkEl.href = g.storeUrl; linkEl.style.display = ''; } else { linkEl.style.display = 'none'; }
+
+    const suggestBtn = document.getElementById('btn-suggest-steam');
+    if (g.steamAppId) {
+      suggestBtn.style.display = '';
+      suggestBtn.onclick = () => openSteamSuggestModal(g.steamAppId);
+    } else {
+      suggestBtn.style.display = 'none';
+    }
+  });
+
+  ref.collection('milestones').orderBy('order').onSnapshot((snap) => {
+    const list = document.getElementById('milestone-list');
+    if (snap.empty) {
+      list.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">No milestones yet — add the first one below.</p>`;
+      return;
+    }
+    const docs = snap.docs;
+    list.innerHTML = docs.map((d, i) => {
+      const m = d.data();
+      const isLast = i === docs.length - 1;
+      return `
+        <div class="step">
+          <div class="stack" style="align-items:center; gap:0;">
+            <button class="step-dot ${m.status}" data-ms="${d.id}" data-status="${m.status}" style="cursor:pointer; padding:0;"></button>
+            ${isLast ? '' : '<div class="step-line"></div>'}
+          </div>
+          <div style="padding-bottom:${isLast ? '0' : '22px'};">
+            <div style="font-weight:600; color:var(--ink-strong); font-size:15px;">${MG.escapeHtml(m.title)}</div>
+            <div class="mono" style="font-size:10.5px; color:var(--ink-dim); margin-top:4px;">${
+              m.status === 'done' ? 'DONE' : m.status === 'doing' ? 'IN PROGRESS' : 'NOT STARTED'
+            }${m.createdBy ? ' · ' + MG.escapeHtml(m.createdBy) : ''}</div>
+          </div>
+        </div>`;
+    }).join('');
+    list.querySelectorAll('[data-ms]').forEach((btn) => {
+      btn.onclick = () => {
+        const next = STEP_ORDER[(STEP_ORDER.indexOf(btn.dataset.status) + 1) % STEP_ORDER.length];
+        MG.setMilestoneStatus(gameId, btn.dataset.ms, next).catch((e) => alert(e.message));
+      };
+    });
+  });
+
+  ref.collection('todos').orderBy('createdAt').onSnapshot((snap) => {
+    const list = document.getElementById('todo-list');
+    if (snap.empty) {
+      list.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">Nothing on the list yet.</p>`;
+      return;
+    }
+    list.innerHTML = snap.docs.map((d) => {
+      const t = d.data();
+      return `
+        <div class="row">
+          <button class="todo-box${t.done ? ' done' : ''}" data-todo="${d.id}" data-done="${t.done}"></button>
+          <div style="flex:1; font-size:14px; color:${t.done ? 'var(--ink-dim)' : 'var(--ink-strong)'}; text-decoration:${t.done ? 'line-through' : 'none'};">${MG.escapeHtml(t.text)}</div>
+        </div>`;
+    }).join('');
+    list.querySelectorAll('[data-todo]').forEach((btn) => {
+      btn.onclick = () => MG.toggleTodo(gameId, btn.dataset.todo, btn.dataset.done !== 'true').catch((e) => alert(e.message));
+    });
+  });
+
+  ref.collection('notes').orderBy('createdAt').onSnapshot((snap) => {
+    const list = document.getElementById('notes-list');
+    if (snap.empty) {
+      list.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">No notes yet.</p>`;
+      return;
+    }
+    list.innerHTML = snap.docs.map((d) => {
+      const n = d.data();
+      const when = MG.toDate(n.createdAt);
+      return `
+        <div class="row" style="align-items:flex-start;">
+          ${MG.avatarHtml(n.authorName, n.authorPhoto)}
+          <div>
+            <div style="font-size:13px;"><span style="color:var(--ink-strong); font-weight:600;">${MG.escapeHtml(n.authorName)}</span> <span class="mono" style="color:var(--ink-dim); font-size:10.5px;">· ${when ? MG.escapeHtml(MG.timeAgo(when).toUpperCase()) : ''}</span></div>
+            <div style="font-size:14px; margin-top:4px;">${MG.escapeHtml(n.text)}</div>
+          </div>
+        </div>`;
+    }).join('');
+    list.scrollTop = list.scrollHeight;
+  });
+
+  document.getElementById('milestone-form').onsubmit = (e) => {
+    e.preventDefault();
+    const input = document.getElementById('milestone-input');
+    if (!input.value.trim()) return;
+    MG.addMilestone(gameId, input.value.trim()).catch((err) => alert(err.message));
+    input.value = '';
+  };
+  document.getElementById('todo-form').onsubmit = (e) => {
+    e.preventDefault();
+    const input = document.getElementById('todo-input');
+    if (!input.value.trim()) return;
+    MG.addTodo(gameId, input.value.trim()).catch((err) => alert(err.message));
+    input.value = '';
+  };
+  document.getElementById('note-form').onsubmit = (e) => {
+    e.preventDefault();
+    const input = document.getElementById('note-input');
+    if (!input.value.trim()) return;
+    MG.addNote(gameId, input.value.trim()).catch((err) => alert(err.message));
+    input.value = '';
+  };
+}
+
+async function openSteamSuggestModal(appId) {
+  const modal = MG.openModal(`
+    <div class="eyebrow">Suggest from Steam</div>
+    <h2 style="font-size:22px; margin-top:10px;">Pick milestones</h2>
+    <div id="steam-ach-list" class="stack" style="margin-top:18px; max-height:360px; overflow-y:auto;">
+      <p class="mono" style="font-size:11px; color:var(--ink-dim);">Loading achievements…</p>
+    </div>
+    <div class="row" style="justify-content:flex-end; margin-top:16px;">
+      <button class="btn btn-ghost" type="button" id="sa-cancel">Cancel</button>
+      <button class="btn btn-primary" type="button" id="sa-add">Add Selected</button>
+    </div>
+    <p id="sa-error" class="mono" style="color:#ff8a6a; font-size:12px;"></p>
+  `);
+  modal.querySelector('#sa-cancel').onclick = () => MG.closeModal();
+
+  try {
+    const data = await MG.fetchSteamAchievements(appId);
+    const listEl = modal.querySelector('#steam-ach-list');
+    if (!data.achievements || data.achievements.length === 0) {
+      listEl.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">${MG.escapeHtml(data.note || 'This game has no Steam achievements.')}</p>`;
+      return;
+    }
+    listEl.innerHTML = data.achievements.map((a, i) => `
+      <label class="row" style="align-items:flex-start; cursor:pointer;">
+        <input type="checkbox" value="${MG.escapeHtml(a.title)}" id="ach-${i}" style="margin-top:4px;">
+        <div>
+          <div style="font-size:14px; color:var(--ink-strong);">${MG.escapeHtml(a.title)}</div>
+          ${a.description ? `<div style="font-size:12px; color:var(--ink-dim); margin-top:2px;">${MG.escapeHtml(a.description)}</div>` : ''}
+        </div>
+      </label>
+    `).join('');
+  } catch (err) {
+    modal.querySelector('#steam-ach-list').innerHTML = `<p class="mono" style="color:#ff8a6a; font-size:12px;">${MG.escapeHtml(err.message)}</p>`;
+  }
+
+  modal.querySelector('#sa-add').onclick = async () => {
+    const checked = [...modal.querySelectorAll('#steam-ach-list input:checked')];
+    if (checked.length === 0) { modal.querySelector('#sa-error').textContent = 'Pick at least one.'; return; }
+    const btn = modal.querySelector('#sa-add');
+    btn.disabled = true;
+    try {
+      for (const box of checked) await MG.addMilestone(gameId, box.value);
+      MG.closeModal();
+    } catch (err) {
+      modal.querySelector('#sa-error').textContent = err.message;
+      btn.disabled = false;
+    }
+  };
+}
+
+MG.ready('games', loadGame);
+</script>
+</body>
+</html>

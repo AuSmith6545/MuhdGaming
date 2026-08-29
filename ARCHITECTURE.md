@@ -17,21 +17,34 @@ The Firebase config object embedded in the site's JS (apiKey, projectId, etc.) i
 
 ## Data model
 
+This is the model as actually implemented in `assets/app.js` (the earlier planning version differed slightly — this is the source of truth now):
+
 ```
 games (collection)
-  └─ doc per game: title, platforms, genre, coopType, maxPlayers,
-     description, link, status (proposed/approved/archived),
-     proposedBy, votes
-     ├─ milestones (subcollection): title, status, order, dueDate
-     └─ todos (subcollection): text, done, assignedTo, createdBy
+  └─ doc per game: title, platforms[], genres[], coopType, minPlayers, maxPlayers,
+     description, storeUrl, steamAppId, image, status ("proposed"/"approved"),
+     proposedBy {uid, name}, proposedAt, votes ({uid: true}),
+     approvedAt, lastActivityAt (bumped on any milestone/todo write — this is
+     what powers the Dashboard's "Recently Active" widget without a
+     collection-group query)
+     ├─ milestones (subcollection): title, status ("todo"/"doing"/"done"),
+     │    order, createdBy, createdAt, updatedAt
+     ├─ todos (subcollection): text, done, assignedTo, createdBy, createdAt, updatedAt
+     └─ notes (subcollection): text, authorUid, authorName, authorPhoto, createdAt
 
 sessions (collection)          ← the calendar
-  └─ doc per session: gameId, proposedDate/time, status (proposed/accepted),
-     proposedBy, rsvps (map of uid -> yes/no/maybe), notes
+  └─ doc per session: gameId, gameTitle, dateTime, status ("proposed"/"accepted"),
+     proposedBy {uid, name}, notes, createdAt, acceptedAt
+     rsvps: { [uid]: {choice, name, photoURL} } — the name/photo are stored
+     alongside each RSVP (not just the uid) since the `friends` collection is
+     keyed by email, not uid, so there'd otherwise be no way to resolve whose
+     vote is whose when rendering the list
 
-friends (collection)           ← profile info, filled in on first sign-in
-  └─ doc per friend: email, displayName, photoURL, joinedAt
+friends (collection)           ← the allowlist, managed by hand in the console
+  └─ doc per friend, ID = email: displayName, photoURL
 ```
+
+**No server-side approval/acceptance logic exists** — since the site is 100% static, the "unanimous vote → approved" and "enough RSVPs → accepted" rules run client-side: whoever casts the deciding vote/RSVP is whose browser writes the status change, inside a Firestore transaction (so two friends acting at once can't race into a bad state). All Firestore queries deliberately use only single-field equality filters with client-side sorting — no `orderBy` combined with a `where` on a different field — so the app never needs a Firestore composite index to be created by hand.
 
 ## Access control
 
@@ -57,6 +70,25 @@ Routes (both public, read-only, cached at the edge for an hour):
 The Steam Web API key the achievements route needs is stored as a Cloudflare Worker **secret** (`STEAM_API_KEY`), set directly via `npx wrangler secret put STEAM_API_KEY` from the `worker/` folder — it's never in this repo. To redeploy after editing `worker/src/index.js`: `cd worker && npx wrangler deploy`.
 
 Still to build (site-side, not the proxy): wiring these routes into the actual recommendation form (paste a Steam URL → auto-fill) and the game-approval flow (seed the milestone board from `/achievements`). The self-updating-milestones stretch goal (auto-checking milestones as friends unlock the real achievement) stays future work — it needs friends to link a Steam ID and the stack's first recurring background job, so it's deliberately not blocking the two features above.
+
+## Site structure
+
+Plain static pages, no build step — sharing one stylesheet and one JS file so there's exactly one place to change a color or fix a bug:
+
+```
+index.html            Dashboard (home)
+recommendations.html  Propose + vote on games
+games.html             Approved game library
+game.html?id=          One game's milestones, to-dos, notes (Steam-achievement suggestions live here)
+calendar.html          Propose + RSVP + browse sessions
+
+assets/styles.css      The whole visual design system — one file
+assets/app.js          Firebase init, the sign-in/friend gate, the nav bar,
+                        and every Firestore write with real logic in it
+                        (vote→approve, RSVP→accept, milestones, to-dos, notes)
+```
+
+Each page's own inline `<script>` only reads data and renders — the actual writes all funnel through `assets/app.js` so the transaction logic only has to be correct in one place.
 
 ## One-time setup checklist
 

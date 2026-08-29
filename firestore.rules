@@ -33,14 +33,12 @@ service cloud.firestore {
       match /todos/{todoId} {
         allow read, write: if isFriend();
       }
+      match /notes/{noteId} {
+        allow read, write: if isFriend();
+      }
     }
 
     match /sessions/{sessionId} {
-      allow read, write: if isFriend();
-    }
-
-    match /pings/{pingId} {
-      // temporary: used only by the index.html connection test
       allow read, write: if isFriend();
     }
   }

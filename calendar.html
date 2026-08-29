@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MuhdGaming — Calendar</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Titillium+Web:wght@400;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<div id="mg-nav"></div>
+<div id="mg-gate" class="loading">Loading…</div>
+
+<main id="mg-main" hidden>
+  <div class="wrap row" style="padding-top:40px; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:16px;">
+    <div>
+      <div class="eyebrow">Calendar</div>
+      <h1 style="font-size:32px; margin-top:10px;">Sessions</h1>
+    </div>
+    <div class="row" style="gap:14px;">
+      <div class="row" style="gap:0;">
+        <button class="toggle active" id="view-month">Month</button>
+        <button class="toggle" id="view-list">List</button>
+      </div>
+      <button id="btn-propose-session" class="btn btn-primary">+ Propose a Session</button>
+    </div>
+  </div>
+
+  <div class="wrap grid-2" style="grid-template-columns:2fr 1fr; padding:22px 40px 60px; align-items:start;">
+
+    <div class="panel chamfer" style="padding:22px;">
+      <div id="month-nav" class="row" style="justify-content:space-between; margin-bottom:16px; display:none;">
+        <button class="btn btn-ghost btn-sm" id="month-prev">← Prev</button>
+        <span id="month-label" class="mono" style="color:var(--ink-strong); font-size:13px; letter-spacing:.05em;"></span>
+        <button class="btn btn-ghost btn-sm" id="month-next">Next →</button>
+      </div>
+      <div id="cal-body"></div>
+      <div class="row" style="gap:20px; margin-top:16px;">
+        <div class="row" style="gap:8px;"><span style="width:12px; height:12px; border:1px solid var(--accent); box-shadow:0 0 8px -1px var(--accent);"></span><span class="mono" style="font-size:10.5px; color:var(--ink-dim);">ACCEPTED</span></div>
+        <div class="row" style="gap:8px;"><span style="width:12px; height:12px; border:1px dashed var(--line-bright);"></span><span class="mono" style="font-size:10.5px; color:var(--ink-dim);">PROPOSED — AWAITING RSVPS</span></div>
+      </div>
+    </div>
+
+    <div id="session-detail" class="panel chamfer" style="padding:22px;">
+      <p style="color:var(--ink-dim); font-size:13px;">Select a session to see who's in.</p>
+    </div>
+
+  </div>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="assets/app.js"></script>
+<script>
+let allSessions = [];
+let viewMode = 'month';
+let monthCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let selectedSessionId = null;
+
+function buildMonthCells(monthStart) {
+  const year = monthStart.getFullYear(), month = monthStart.getMonth();
+  const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7; // Monday = 0
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPrevMonth = new Date(year, month, 0).getDate();
+  const cells = [];
+  for (let i = firstWeekday - 1; i >= 0; i--) cells.push(new Date(year, month - 1, daysInPrevMonth - i));
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
+  let next = 1;
+  while (cells.length % 7 !== 0) cells.push(new Date(year, month + 1, next++));
+  return cells;
+}
+
+function sameDay(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function renderMonth() {
+  document.getElementById('month-nav').style.display = '';
+  document.getElementById('month-label').textContent =
+    monthCursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }).toUpperCase();
+
+  const cells = buildMonthCells(monthCursor);
+  const headHtml = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].map((d) => `<div class="cal-head mono">${d}</div>`).join('');
+
+  const cellsHtml = cells.map((date) => {
+    const daySessions = allSessions.filter((s) => s.when && sameDay(s.when, date));
+    const evHtml = daySessions.map((s) => `
+      <a href="#" class="ev ${s.status === 'accepted' ? 'ev-accepted' : 'ev-proposed'}" data-select="${s.id}">
+        ${MG.escapeHtml(s.gameTitle.slice(0, 10))} · ${s.when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+      </a>`).join('');
+    return `<div class="cal-day${date.getMonth() !== monthCursor.getMonth() ? ' other-month' : ''}">
+      <span class="day-num">${date.getDate()}</span>${evHtml}
+    </div>`;
+  }).join('');
+
+  document.getElementById('cal-body').innerHTML = `<div class="cal-grid">${headHtml}${cellsHtml}</div>`;
+  document.getElementById('cal-body').querySelectorAll('[data-select]').forEach((el) => {
+    el.onclick = (e) => { e.preventDefault(); selectSession(el.dataset.select); };
+  });
+}
+
+function renderList() {
+  document.getElementById('month-nav').style.display = 'none';
+  const upcoming = allSessions.filter((s) => s.when).sort((a, b) => a.when - b.when);
+  if (upcoming.length === 0) {
+    document.getElementById('cal-body').innerHTML = `<div class="empty-state">No sessions yet.</div>`;
+    return;
+  }
+  document.getElementById('cal-body').innerHTML = upcoming.map((s) => `
+    <a href="#" data-select="${s.id}" class="row panel chamfer" style="text-decoration:none; padding:14px 16px; margin-bottom:10px; justify-content:space-between;">
+      <div>
+        <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:16px; color:var(--ink-strong);">${MG.escapeHtml(s.gameTitle)}</div>
+        <div class="mono" style="font-size:10.5px; color:var(--ink-dim); margin-top:4px;">${MG.escapeHtml(MG.formatDateTime(s.when).toUpperCase())}</div>
+      </div>
+      <span class="chip${s.status === 'accepted' ? ' chip-live' : ''}">${s.status === 'accepted' ? 'Accepted' : 'Proposed'}</span>
+    </a>
+  `).join('');
+  document.getElementById('cal-body').querySelectorAll('[data-select]').forEach((el) => {
+    el.onclick = (e) => { e.preventDefault(); selectSession(el.dataset.select); };
+  });
+}
+
+function renderCalendarBody() {
+  if (viewMode === 'month') renderMonth(); else renderList();
+}
+
+function selectSession(id) {
+  selectedSessionId = id;
+  renderDetail();
+}
+
+function renderDetail() {
+  const panel = document.getElementById('session-detail');
+  const s = allSessions.find((x) => x.id === selectedSessionId);
+  if (!s) {
+    panel.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">Select a session to see who's in.</p>`;
+    return;
+  }
+
+  const rsvps = s.rsvps || {};
+  const mine = rsvps[MG.user.uid];
+  const isYes = mine && mine.choice === 'yes';
+  const isMaybe = mine && mine.choice === 'maybe';
+  const isNo = mine && mine.choice === 'no';
+  const yesCount = Object.values(rsvps).filter((v) => v.choice === 'yes').length;
+  const respondents = Object.entries(rsvps);
+
+  panel.innerHTML = `
+    <div class="eyebrow">Selected Session</div>
+    <h2 style="font-size:22px; margin-top:10px;">${MG.escapeHtml(s.gameTitle)}</h2>
+    <div class="mono" style="font-size:11px; color:var(--ink-dim); margin-top:6px;">${MG.escapeHtml(MG.formatDateTime(s.when).toUpperCase())} · PROPOSED BY ${MG.escapeHtml(s.proposedBy && s.proposedBy.name || '')}</div>
+
+    ${s.status === 'accepted'
+      ? `<span class="chip chip-live" style="margin-top:16px; width:fit-content;">Accepted</span>`
+      : `<div style="margin-top:16px;">
+           <div class="mono" style="font-size:10.5px; color:var(--ink-dim); margin-bottom:8px;">COLLECTING RSVPS — ${yesCount} SAID YES</div>
+         </div>`}
+
+    <div class="stack" style="margin-top:16px; gap:10px;">
+      ${respondents.length === 0
+        ? `<p style="color:var(--ink-dim); font-size:13px;">No responses yet.</p>`
+        : respondents.map(([uid, r]) => `
+            <div class="row">
+              ${MG.avatarHtml(r.name, r.photoURL, 'sm')}
+              <span style="font-size:13px; flex:1;">${uid === MG.user.uid ? 'You' : MG.escapeHtml(r.name)}</span>
+              <span class="chip${r.choice === 'yes' ? ' chip-accent' : ''}">${MG.escapeHtml(r.choice)}</span>
+            </div>`).join('')}
+    </div>
+
+    <div class="row" style="gap:8px; padding-top:16px; margin-top:16px; border-top:1px solid var(--line);">
+      <button class="rsvp-btn${isYes ? ' active-yes' : ''}" data-rsvp="yes">Yes</button>
+      <button class="rsvp-btn${isMaybe ? ' active-maybe' : ''}" data-rsvp="maybe">Maybe</button>
+      <button class="rsvp-btn${isNo ? ' active-no' : ''}" data-rsvp="no">No</button>
+    </div>
+
+    ${s.notes ? `<div class="mono" style="font-size:11.5px; color:var(--ink-dim); border-top:1px solid var(--line); padding-top:14px; margin-top:16px; line-height:1.5;">"${MG.escapeHtml(s.notes)}"</div>` : ''}
+  `;
+
+  panel.querySelectorAll('[data-rsvp]').forEach((btn) => {
+    btn.onclick = () => { btn.disabled = true; MG.setRsvp(s.id, btn.dataset.rsvp).catch((e) => alert(e.message)); };
+  });
+}
+
+function renderCalendar() {
+  document.getElementById('btn-propose-session').onclick = () => MG.openProposeSessionModal();
+  document.getElementById('month-prev').onclick = () => { monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() - 1, 1); renderCalendarBody(); };
+  document.getElementById('month-next').onclick = () => { monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1); renderCalendarBody(); };
+  document.getElementById('view-month').onclick = () => { viewMode = 'month'; document.getElementById('view-month').classList.add('active'); document.getElementById('view-list').classList.remove('active'); renderCalendarBody(); };
+  document.getElementById('view-list').onclick = () => { viewMode = 'list'; document.getElementById('view-list').classList.add('active'); document.getElementById('view-month').classList.remove('active'); renderCalendarBody(); };
+
+  MG.db.collection('sessions').onSnapshot((snap) => {
+    allSessions = snap.docs.map((d) => {
+      const data = d.data();
+      return { id: d.id, ...data, when: MG.toDate(data.dateTime) };
+    });
+    renderCalendarBody();
+    renderDetail();
+  }, (err) => {
+    console.error(err);
+    document.getElementById('cal-body').innerHTML = `<p class="mono" style="color:#ff8a6a; font-size:12px;">${MG.escapeHtml(err.message)}</p>`;
+  });
+}
+
+MG.ready('calendar', renderCalendar);
+</script>
+</body>
+</html>

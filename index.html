@@ -3,97 +3,173 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MuhdGaming — connection test</title>
-<style>
-  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 3rem auto; padding: 0 1rem; }
-  button { font: inherit; padding: 0.5rem 1rem; cursor: pointer; }
-  #pings { list-style: none; padding: 0; }
-  #pings li { padding: 0.4rem 0; border-bottom: 1px solid #ddd; }
-  #status { color: #666; font-size: 0.9rem; }
-</style>
+<title>MuhdGaming — Dashboard</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Titillium+Web:wght@400;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/styles.css">
 </head>
 <body>
 
-<h1>MuhdGaming — backend connection test</h1>
-<p id="status">Loading…</p>
+<div id="mg-nav"></div>
+<div id="mg-gate" class="loading">Loading…</div>
 
-<div id="signed-out" hidden>
-  <button id="sign-in">Sign in with Google</button>
-</div>
+<main id="mg-main" hidden>
+  <div class="wrap" style="padding-top:40px;">
+    <div class="eyebrow">Dashboard // Overview</div>
+    <h1 id="greeting" style="font-size:32px; margin-top:10px;">Good evening</h1>
+    <div id="substat" class="mono" style="font-size:12px; color:var(--ink-dim); margin-top:12px;"></div>
+  </div>
 
-<div id="signed-in" hidden>
-  <p>Signed in as <strong id="user-name"></strong></p>
-  <button id="sign-out">Sign out</button>
-  <button id="send-ping">Send a test ping</button>
-  <h2>Live pings (from Firestore)</h2>
-  <ul id="pings"></ul>
-</div>
+  <div class="wrap grid-4" style="padding:28px 40px;">
+    <div class="panel chamfer" style="padding:20px;">
+      <div class="eyebrow">This Week</div>
+      <div id="w-thisweek" class="stack" style="margin-top:16px;"></div>
+    </div>
+    <div class="panel chamfer" style="padding:20px;">
+      <div class="eyebrow">Needs Your RSVP</div>
+      <div id="w-rsvp" class="stack" style="margin-top:16px;"></div>
+    </div>
+    <div class="panel chamfer" style="padding:20px;">
+      <div class="eyebrow">Almost Approved</div>
+      <div id="w-almost" class="stack" style="margin-top:16px;"></div>
+    </div>
+    <div class="panel chamfer" style="padding:20px;">
+      <div class="eyebrow">Recently Active</div>
+      <div id="w-active" class="stack" style="margin-top:16px;"></div>
+    </div>
+  </div>
 
-<!-- This page is just a wiring test: prove sign-in + live Firestore updates
-     both work end to end before we build the real site on top of it. -->
+  <div class="wrap row" style="padding:8px 40px 60px;">
+    <button id="btn-propose-game" class="btn btn-primary">+ Propose a Game</button>
+    <button id="btn-propose-session" class="btn btn-ghost">+ Propose a Session</button>
+  </div>
+</main>
 
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="assets/app.js"></script>
 <script>
-  // TODO: replace with the config object from
-  // Firebase Console -> Project settings -> Your apps -> Web app
-  const firebaseConfig = {
-    apiKey: "AIzaSyCA4so_tIljdGxTDsyP7vBnvnTkYG6ObuY",
-    authDomain: "muhdgaming.firebaseapp.com",
-    projectId: "muhdgaming",
-    storageBucket: "muhdgaming.firebasestorage.app",
-    messagingSenderId: "1086910389926",
-    appId: "1:1086910389926:web:db03d6ba55fb09b00b9e67"
+function widgetError(elId) {
+  return (err) => {
+    console.error(err);
+    document.getElementById(elId).innerHTML =
+      `<p class="mono" style="font-size:11px; color:#ff8a6a; line-height:1.5;">${MG.escapeHtml(err.message)}</p>`;
   };
+}
 
-  firebase.initializeApp(firebaseConfig);
-  const auth = firebase.auth();
-  const db = firebase.firestore();
-  const provider = new firebase.auth.GoogleAuthProvider();
+function renderDashboard() {
+  const hour = new Date().getHours();
+  const name = (MG.user.displayName || '').split(' ')[0];
+  document.getElementById('greeting').textContent =
+    (hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening') + (name ? `, ${name}` : '');
 
-  const statusEl = document.getElementById('status');
-  const signedOutEl = document.getElementById('signed-out');
-  const signedInEl = document.getElementById('signed-in');
-  const userNameEl = document.getElementById('user-name');
-  const pingsEl = document.getElementById('pings');
+  const now = new Date();
 
-  document.getElementById('sign-in').onclick = () => auth.signInWithPopup(provider);
-  document.getElementById('sign-out').onclick = () => auth.signOut();
-  document.getElementById('send-ping').onclick = () => {
-    db.collection('pings').add({
-      from: auth.currentUser.displayName,
-      at: firebase.firestore.FieldValue.serverTimestamp()
-    });
-  };
+  // THIS WEEK — soonest accepted sessions
+  MG.db.collection('sessions').where('status', '==', 'accepted').onSnapshot((snap) => {
+    const upcoming = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .map((s) => ({ ...s, when: MG.toDate(s.dateTime) }))
+      .filter((s) => s.when && s.when >= now)
+      .sort((a, b) => a.when - b.when)
+      .slice(0, 2);
 
-  let unsubscribePings = null;
-
-  auth.onAuthStateChanged(user => {
-    if (user) {
-      statusEl.textContent = '';
-      signedOutEl.hidden = true;
-      signedInEl.hidden = false;
-      userNameEl.textContent = user.displayName;
-
-      unsubscribePings = db.collection('pings').orderBy('at', 'desc').limit(10)
-        .onSnapshot(snapshot => {
-          pingsEl.innerHTML = '';
-          snapshot.forEach(doc => {
-            const li = document.createElement('li');
-            li.textContent = `${doc.data().from} pinged`;
-            pingsEl.appendChild(li);
-          });
-        }, err => {
-          statusEl.textContent = 'Firestore error: ' + err.message;
-        });
+    const el = document.getElementById('w-thisweek');
+    if (upcoming.length === 0) {
+      el.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">Nothing locked in yet.</p>`;
     } else {
-      statusEl.textContent = '';
-      signedOutEl.hidden = false;
-      signedInEl.hidden = true;
-      if (unsubscribePings) unsubscribePings();
+      el.innerHTML = upcoming.map((s) => `
+        <div>
+          <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:17px; color:var(--ink-strong);">${MG.escapeHtml(s.gameTitle)}</div>
+          <div class="mono" style="font-size:11px; color:var(--ink-dim); margin-top:5px;">${MG.escapeHtml(MG.formatDateTime(s.when).toUpperCase())}</div>
+          <span class="chip chip-live" style="margin-top:8px;">Accepted</span>
+        </div>
+      `).join('<hr style="border:none; border-top:1px solid var(--line); margin:4px 0;">');
     }
-  });
+  }, widgetError('w-thisweek'));
+
+  // NEEDS YOUR RSVP — proposed sessions you haven't answered
+  MG.db.collection('sessions').where('status', '==', 'proposed').onSnapshot((snap) => {
+    const mine = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .map((s) => ({ ...s, when: MG.toDate(s.dateTime) }))
+      .filter((s) => !s.rsvps || !s.rsvps[MG.user.uid])
+      .sort((a, b) => (a.when || 0) - (b.when || 0))
+      .slice(0, 2);
+
+    const el = document.getElementById('w-rsvp');
+    if (mine.length === 0) {
+      el.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">You're all caught up.</p>`;
+    } else {
+      el.innerHTML = mine.map((s) => `
+        <div>
+          <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:17px; color:var(--ink-strong);">${MG.escapeHtml(s.gameTitle)}</div>
+          <div class="mono" style="font-size:11px; color:var(--ink-dim); margin-top:5px;">${s.when ? MG.escapeHtml(MG.formatDateTime(s.when).toUpperCase()) : ''}</div>
+          <div class="row" style="margin-top:8px; gap:6px;">
+            <button class="rsvp-btn" data-rsvp="yes" data-id="${s.id}">Yes</button>
+            <button class="rsvp-btn" data-rsvp="maybe" data-id="${s.id}">Maybe</button>
+            <button class="rsvp-btn" data-rsvp="no" data-id="${s.id}">No</button>
+          </div>
+        </div>
+      `).join('<hr style="border:none; border-top:1px solid var(--line); margin:4px 0;">');
+      el.querySelectorAll('[data-rsvp]').forEach((btn) => {
+        btn.onclick = () => { btn.disabled = true; MG.setRsvp(btn.dataset.id, btn.dataset.rsvp).catch((e) => alert(e.message)); };
+      });
+    }
+  }, widgetError('w-rsvp'));
+
+  // ALMOST APPROVED — proposed games closest to unanimous
+  MG.db.collection('games').where('status', '==', 'proposed').onSnapshot((snap) => {
+    const ranked = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .map((g) => ({ ...g, voteCount: Object.keys(g.votes || {}).length }))
+      .sort((a, b) => b.voteCount - a.voteCount)
+      .slice(0, 2);
+
+    const el = document.getElementById('w-almost');
+    if (ranked.length === 0) {
+      el.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">No recommendations up for a vote.</p>`;
+    } else {
+      el.innerHTML = ranked.map((g) => {
+        const segs = Array.from({ length: MG.friendCount || 1 }, (_, i) =>
+          `<div class="seg${i < g.voteCount ? ' on' : ''}"></div>`).join('');
+        return `
+          <a href="recommendations.html" style="text-decoration:none; display:block;">
+            <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:17px; color:var(--ink-strong);">${MG.escapeHtml(g.title)}</div>
+            <div class="mono" style="font-size:11px; color:var(--ink-dim); margin-top:5px;">${g.voteCount} OF ${MG.friendCount} FRIENDS</div>
+            <div class="seg-bar" style="margin-top:8px;">${segs}</div>
+          </a>`;
+      }).join('<hr style="border:none; border-top:1px solid var(--line); margin:4px 0;">');
+    }
+  }, widgetError('w-almost'));
+
+  // RECENTLY ACTIVE — approved games with the newest milestone/to-do activity
+  MG.db.collection('games').where('status', '==', 'approved').onSnapshot((snap) => {
+    const ranked = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .map((g) => ({ ...g, activityAt: MG.toDate(g.lastActivityAt) || MG.toDate(g.approvedAt) }))
+      .filter((g) => g.activityAt)
+      .sort((a, b) => b.activityAt - a.activityAt)
+      .slice(0, 2);
+
+    const el = document.getElementById('w-active');
+    if (ranked.length === 0) {
+      el.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">Nothing to show yet.</p>`;
+    } else {
+      el.innerHTML = ranked.map((g) => `
+        <a href="game.html?id=${g.id}" style="text-decoration:none; display:block;">
+          <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:17px; color:var(--ink-strong);">${MG.escapeHtml(g.title)}</div>
+          <div class="mono" style="font-size:10.5px; color:var(--ink-dim); margin-top:6px;">${MG.escapeHtml(MG.timeAgo(g.activityAt).toUpperCase())}</div>
+        </a>
+      `).join('<hr style="border:none; border-top:1px solid var(--line); margin:4px 0;">');
+    }
+  }, widgetError('w-active'));
+
+  document.getElementById('btn-propose-game').onclick = () => MG.openProposeGameModal();
+  document.getElementById('btn-propose-session').onclick = () => MG.openProposeSessionModal();
+}
+
+MG.ready('dashboard', renderDashboard);
 </script>
 </body>
 </html>
