@@ -13,21 +13,21 @@
 <div id="mg-gate" class="loading">Loading…</div>
 
 <main id="mg-main" hidden>
-  <div id="banner" class="wrap chamfer cover" style="margin-top:40px; height:160px; padding:0; position:relative; background:linear-gradient(135deg,#161c22,#10141a);">
+  <div id="banner" class="wrap chamfer cover game-banner" style="margin-top:40px; background:linear-gradient(135deg,#161c22,#10141a);">
     <div id="banner-glyph" class="glyph"></div>
     <div class="bracket" style="top:14px; right:14px; border-top:2px solid #fff; border-right:2px solid #fff;"></div>
     <div class="bracket" style="bottom:14px; left:14px; border-bottom:2px solid #fff; border-left:2px solid #fff;"></div>
-    <div class="row" style="position:absolute; left:28px; bottom:22px; right:28px; align-items:flex-end; justify-content:space-between;">
+    <div class="row game-banner-content">
       <div>
         <div id="banner-eyebrow" class="eyebrow">Approved</div>
-        <h1 id="banner-title" style="font-size:34px; margin-top:8px;">…</h1>
+        <h1 id="banner-title">…</h1>
         <div id="banner-tags" class="row" style="gap:8px; margin-top:12px; flex-wrap:wrap;"></div>
       </div>
       <a id="banner-link" href="#" target="_blank" class="mono chip" style="text-decoration:none; display:none;">VIEW ON STEAM ↗</a>
     </div>
   </div>
 
-  <div class="wrap row" style="padding-top:16px; justify-content:flex-end; gap:10px;">
+  <div class="wrap row" style="padding-top:16px; justify-content:flex-end; flex-wrap:wrap; gap:10px;">
     <button id="btn-edit-game" class="btn btn-ghost btn-sm" type="button">Edit</button>
     <button id="btn-demote-game" class="btn btn-ghost btn-sm" type="button">Move to Recommendations</button>
     <button id="btn-archive-game" class="btn btn-ghost btn-sm" type="button">Archive</button>
@@ -95,7 +95,7 @@ function loadGame() {
     currentGame = { id: gameId, ...g };
     document.title = `MuhdGaming — ${g.title}`;
     document.getElementById('banner-title').textContent = g.title;
-    const voteCount = Object.keys(g.votes || {}).length;
+    const voteCount = MG.voteCounts(g.votes).yes;
     const statusLabel = g.status === 'archived' ? 'Archived' : g.status === 'proposed' ? 'Back Up For a Vote' : 'Approved';
     document.getElementById('banner-eyebrow').textContent = `${statusLabel} // ${voteCount} of ${MG.friendCount} friends`;
     document.getElementById('banner-glyph').textContent = g.title.slice(0, 2).toUpperCase();

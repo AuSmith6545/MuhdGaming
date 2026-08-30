@@ -19,12 +19,18 @@
     <div id="substat" class="mono" style="font-size:12px; color:var(--ink-dim); margin-top:12px;"></div>
   </div>
 
-  <div id="w-requests-wrap" class="wrap" style="padding:28px 40px 0; display:none;">
-    <div class="panel chamfer" style="padding:20px;">
-      <div class="eyebrow">Pending Requests</div>
-      <div id="w-requests" class="stack" style="margin-top:16px;"></div>
+  <div class="wrap" style="padding-top:22px;">
+    <div id="hero" class="panel chamfer hero" style="position:relative; overflow:hidden;">
+      <div class="bracket" style="top:14px; right:14px; border-top:2px solid #fff; border-right:2px solid #fff;"></div>
+      <div class="bracket" style="bottom:14px; left:14px; border-bottom:2px solid #fff; border-left:2px solid #fff;"></div>
+      <div id="hero-slides"></div>
+      <div id="hero-dots" class="hero-dots"></div>
+      <button id="hero-prev" class="hero-arrow left" type="button" aria-label="Previous slide">‹</button>
+      <button id="hero-next" class="hero-arrow right" type="button" aria-label="Next slide">›</button>
     </div>
   </div>
+
+  <div id="w-requests-wrap" class="wrap" style="padding-top:18px; display:none;"></div>
 
   <div class="wrap grid-4" style="padding:28px 40px;">
     <div class="panel chamfer" style="padding:20px;">
@@ -55,7 +61,58 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <script src="assets/app.js"></script>
+<script src="assets/hero.js"></script>
 <script>
+// Auto-advancing hero carousel — slides come from assets/hero.js. Runs
+// once at page load; doesn't depend on any Firestore data.
+function initHero() {
+  const slides = window.MG_HERO_SLIDES || [];
+  const track = document.getElementById('hero-slides');
+  const dotsEl = document.getElementById('hero-dots');
+  if (!track || slides.length === 0) return;
+
+  track.innerHTML = slides.map((s, i) => `
+    <div class="cover hero-slide${i === 0 ? ' active' : ''}" data-slide="${i}" style="background:${MG.coverGradient(s.title)};">
+      ${MG.coverArtHtml(s.title, s.image)}
+      <div class="hero-shade"></div>
+      <div class="hero-copy">
+        <div class="eyebrow">MuhdGaming</div>
+        <h2>${MG.escapeHtml(s.title)}</h2>
+        ${s.subtitle ? `<p>${MG.escapeHtml(s.subtitle)}</p>` : ''}
+        ${s.cta ? `<a href="${MG.escapeHtml(s.cta.href)}" class="btn btn-primary btn-sm">${MG.escapeHtml(s.cta.label)}</a>` : ''}
+      </div>
+    </div>
+  `).join('');
+  dotsEl.innerHTML = slides.map((_, i) => `<button class="hero-dot${i === 0 ? ' active' : ''}" data-dot="${i}" type="button" aria-label="Slide ${i + 1}"></button>`).join('');
+
+  let current = 0;
+  let timer = null;
+
+  function show(i) {
+    current = (i + slides.length) % slides.length;
+    track.querySelectorAll('.hero-slide').forEach((el) => el.classList.toggle('active', +el.dataset.slide === current));
+    dotsEl.querySelectorAll('.hero-dot').forEach((el) => el.classList.toggle('active', +el.dataset.dot === current));
+  }
+  function restart() {
+    if (timer) clearInterval(timer);
+    if (slides.length > 1) timer = setInterval(() => show(current + 1), 6000);
+  }
+
+  if (slides.length > 1) {
+    document.getElementById('hero-prev').onclick = () => { show(current - 1); restart(); };
+    document.getElementById('hero-next').onclick = () => { show(current + 1); restart(); };
+    dotsEl.querySelectorAll('[data-dot]').forEach((btn) => {
+      btn.onclick = () => { show(+btn.dataset.dot); restart(); };
+    });
+    document.getElementById('hero').addEventListener('mouseenter', () => { if (timer) clearInterval(timer); });
+    document.getElementById('hero').addEventListener('mouseleave', restart);
+    restart();
+  } else {
+    document.getElementById('hero-prev').style.display = 'none';
+    document.getElementById('hero-next').style.display = 'none';
+  }
+}
+
 function widgetError(elId) {
   return (err) => {
     console.error(err);
@@ -65,6 +122,8 @@ function widgetError(elId) {
 }
 
 function renderDashboard() {
+  initHero();
+
   const hour = new Date().getHours();
   const name = (MG.user.displayName || '').split(' ')[0];
   document.getElementById('greeting').textContent =
@@ -129,7 +188,7 @@ function renderDashboard() {
   MG.db.collection('games').where('status', '==', 'proposed').onSnapshot((snap) => {
     const ranked = snap.docs
       .map((d) => ({ id: d.id, ...d.data() }))
-      .map((g) => ({ ...g, voteCount: Object.keys(g.votes || {}).length }))
+      .map((g) => ({ ...g, voteCount: MG.voteCounts(g.votes).yes }))
       .sort((a, b) => b.voteCount - a.voteCount)
       .slice(0, 2);
 
@@ -138,8 +197,7 @@ function renderDashboard() {
       el.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">No recommendations up for a vote.</p>`;
     } else {
       el.innerHTML = ranked.map((g) => {
-        const segs = Array.from({ length: MG.friendCount || 1 }, (_, i) =>
-          `<div class="seg${i < g.voteCount ? ' on' : ''}"></div>`).join('');
+        const segs = MG.segBarHtml(g.votes, MG.friendCount);
         return `
           <a href="recommendations.html" style="text-decoration:none; display:block;">
             <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:17px; color:var(--ink-strong);">${MG.escapeHtml(g.title)}</div>
@@ -175,19 +233,33 @@ function renderDashboard() {
   document.getElementById('btn-propose-game').onclick = () => MG.openProposeGameModal();
   document.getElementById('btn-propose-session').onclick = () => MG.openProposeSessionModal();
 
+  // PENDING REQUESTS (admins only) — a single quiet line when there's
+  // nothing to do, so it doesn't compete with the rest of the dashboard;
+  // swaps to a glowing, impossible-to-miss panel the moment someone's
+  // actually waiting on access.
   if (MG.isAdmin) {
-    document.getElementById('w-requests-wrap').style.display = '';
+    const wrap = document.getElementById('w-requests-wrap');
+    wrap.style.display = '';
     MG.db.collection('joinRequests').onSnapshot((snap) => {
-      const el = document.getElementById('w-requests');
       if (snap.empty) {
-        el.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">No one's waiting on access.</p>`;
+        wrap.innerHTML = `<div class="quiet-line"><span class="dot"></span>NO PENDING ACCESS REQUESTS</div>`;
         return;
       }
+      wrap.innerHTML = `
+        <div class="panel chamfer panel-alert" style="padding:20px;">
+          <div class="row" style="justify-content:space-between; align-items:center;">
+            <div class="eyebrow" style="color:var(--accent);">⚠ Pending Requests</div>
+            <span class="chip chip-accent">${snap.size} WAITING</span>
+          </div>
+          <div id="w-requests" class="stack" style="margin-top:16px;"></div>
+        </div>`;
+
+      const el = document.getElementById('w-requests');
       el.innerHTML = snap.docs.map((d) => {
         const r = d.data();
         return `
-          <div class="row" style="justify-content:space-between;">
-            <div>
+          <div class="row" style="justify-content:space-between; flex-wrap:wrap; gap:10px;">
+            <div style="overflow-wrap:anywhere;">
               <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:15px; color:var(--ink-strong);">${MG.escapeHtml(r.name)}</div>
               <div class="mono" style="font-size:10.5px; color:var(--ink-dim); margin-top:3px;">${MG.escapeHtml(r.email)}</div>
             </div>
@@ -211,7 +283,7 @@ function renderDashboard() {
           MG.declineRequest(btn.dataset.decline).catch((e) => alert(e.message));
         };
       });
-    }, widgetError('w-requests'));
+    }, widgetError('w-requests-wrap'));
   }
 }
 

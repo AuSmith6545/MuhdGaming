@@ -92,6 +92,26 @@ MG.coverArtHtml = function (title, image) {
   `;
 };
 
+// votes: { [uid]: true | false } — true is a yes, false is an explicit no,
+// and a friend simply missing from the map hasn't voted yet at all.
+MG.voteCounts = function (votes) {
+  const vals = Object.values(votes || {});
+  return {
+    yes: vals.filter((v) => v === true).length,
+    no: vals.filter((v) => v === false).length,
+  };
+};
+
+// Renders the friend-count progress bar used on recommendation cards and
+// the dashboard: filled segments for yes votes, dim red segments for
+// explicit no votes, empty for anyone who hasn't voted yet.
+MG.segBarHtml = function (votes, friendCount) {
+  const { yes, no } = MG.voteCounts(votes);
+  return Array.from({ length: friendCount || 1 }, (_, i) =>
+    `<div class="seg${i < yes ? ' on' : i < yes + no ? ' off-no' : ''}"></div>`
+  ).join('');
+};
+
 MG.avatarHtml = function (name, photoURL, size) {
   const cls = 'avatar' + (size === 'sm' ? ' sm' : size === 'lg' ? ' lg' : '');
   if (photoURL) return `<div class="${cls} chamfer-xs"><img src="${MG.escapeHtml(photoURL)}" alt=""></div>`;
@@ -219,15 +239,38 @@ function renderNav(activePage) {
       <div class="mark chamfer-xs">MG</div>
       <span class="wordmark">MUHDGAMING</span>
     </a>
-    <div class="links">${linksHtml}</div>
-    <div class="row" style="margin-left:auto;">
-      <span class="mono" style="font-size:11px; color:var(--ink-dim);">${MG.friendCount} IN CREW</span>
-      ${user ? `<a href="profile.html" title="Your profile">${MG.resolveAvatarHtml(user.uid, user.displayName, user.photoURL)}</a>` : ''}
-      <button id="mg-signout" class="btn btn-ghost btn-sm">Sign out</button>
+    <button id="mg-nav-toggle" class="nav-toggle" type="button" aria-label="Menu" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+    <div id="mg-nav-panel" class="mg-nav-panel">
+      <div class="links">${linksHtml}</div>
+      <div class="row mg-nav-info">
+        <span class="mono" style="font-size:11px; color:var(--ink-dim);">${MG.friendCount} IN CREW</span>
+        ${user ? `<a href="profile.html" title="Your profile">${MG.resolveAvatarHtml(user.uid, user.displayName, user.photoURL)}</a>` : ''}
+        <button id="mg-signout" class="btn btn-ghost btn-sm">Sign out</button>
+      </div>
     </div>
   `;
   const signOutBtn = document.getElementById('mg-signout');
   if (signOutBtn) signOutBtn.onclick = () => MG.auth.signOut();
+
+  // Mobile hamburger — the panel (links + friend count/avatar/sign-out) is
+  // always in the DOM and laid out inline above the 860px breakpoint; below
+  // it, styles.css turns it into a collapsed dropdown this toggles open.
+  const toggle = document.getElementById('mg-nav-toggle');
+  const panel = document.getElementById('mg-nav-panel');
+  toggle.onclick = () => {
+    const open = panel.classList.toggle('open');
+    toggle.classList.toggle('open', open);
+    toggle.setAttribute('aria-expanded', String(open));
+  };
+  panel.querySelectorAll('a, button').forEach((el) => {
+    el.addEventListener('click', () => {
+      panel.classList.remove('open');
+      toggle.classList.remove('open');
+      toggle.setAttribute('aria-expanded', 'false');
+    });
+  });
 }
 
 function showGate(state, message) {
@@ -466,14 +509,17 @@ MG.archiveGame = async function (gameId) {
   });
 };
 
-// Toggles the current friend's vote; auto-approves the moment every friend
-// in the crew has voted yes. Wrapped in a transaction so two friends voting
-// at once can't both think they cast the deciding vote. The friend count is
-// re-read fresh right before the transaction (rather than the possibly-
-// stale MG.friendCount cached at sign-in) — it can't be read *inside* the
+// Sets (or clears, if you click your current choice again) the current
+// friend's yes/no vote; auto-approves the moment every friend in the crew
+// has voted yes specifically — a "no" counts the same as not having voted
+// yet for approval purposes, it just makes the disagreement visible instead
+// of silent. Wrapped in a transaction so two friends voting at once can't
+// both think they cast the deciding vote. The friend count is re-read fresh
+// right before the transaction (rather than the possibly-stale
+// MG.friendCount cached at sign-in) — it can't be read *inside* the
 // transaction itself, because Firestore's web SDK only allows a transaction
 // to read individual documents, not a whole collection/query.
-MG.toggleVote = async function (gameId) {
+MG.setVote = async function (gameId, choice) {
   const uid = MG.user.uid;
   const ref = MG.db.collection('games').doc(gameId);
   const friendsSnap = await MG.db.collection('friends').get();
@@ -484,10 +530,11 @@ MG.toggleVote = async function (gameId) {
     if (!snap.exists) return;
     const data = snap.data();
     const votes = Object.assign({}, data.votes || {});
-    if (votes[uid]) delete votes[uid]; else votes[uid] = true;
+    if (votes[uid] === choice) delete votes[uid]; else votes[uid] = choice;
 
     const update = { votes };
-    if (data.status === 'proposed' && friendCount > 0 && Object.keys(votes).length >= friendCount) {
+    const yesCount = Object.values(votes).filter((v) => v === true).length;
+    if (data.status === 'proposed' && friendCount > 0 && yesCount >= friendCount) {
       update.status = 'approved';
       update.approvedAt = firebase.firestore.FieldValue.serverTimestamp();
       update.lastActivityAt = firebase.firestore.FieldValue.serverTimestamp();
@@ -583,7 +630,7 @@ MG.proposeSession = async function (fields) {
 // Sets the current friend's RSVP; auto-accepts once "yes" RSVPs reach the
 // game's minimum player count, and auto-demotes back to "proposed" if a
 // changed RSVP drops an accepted session back below that count. Transaction-
-// wrapped for the same reason as toggleVote above.
+// wrapped for the same reason as setVote above.
 MG.setRsvp = async function (sessionId, choice) {
   const uid = MG.user.uid;
   const ref = MG.db.collection('sessions').doc(sessionId);
@@ -676,103 +723,187 @@ MG.openModal = function (innerHtml) {
 
 // Shared by "Propose a Game" (existing = null) and "Edit Game"
 // (existing = {id, title, ...the game's current fields}).
+//
+// A fresh proposal starts on a fork: "Look Up on Steam" (a real primary
+// button — this used to be a small ghost button next to the text field,
+// easy to miss, which is how games ended up added with a title but no
+// image/price/release date because nobody had actually clicked it) or
+// "Enter Details Manually", equally visible, for anyone who'd rather
+// quick-add just a title now and fill in the rest later via Edit. Editing
+// an existing game skips straight to the full form, since there's already
+// something there to work from — but its Steam field still gets a real
+// "Look Up" button, so re-pointing it at a different App ID later is just
+// as prominent as the first time.
 MG.openGameFormModal = function (existing) {
-  const isEdit = !!existing;
-  const html = `
-    <div class="eyebrow">${isEdit ? 'Edit Game' : 'Propose a Game'}</div>
-    <h2 style="font-size:22px; margin-top:10px;">${isEdit ? 'Update the details' : 'Add a recommendation'}</h2>
-    <div class="stack" style="margin-top:20px;">
-      <div class="field">
-        <label>Steam store link or App ID (optional)</label>
-        <div class="row">
-          <input id="pg-steam" type="text" placeholder="https://store.steampowered.com/app/1426210" style="flex:1;" value="${isEdit ? MG.escapeHtml(existing.storeUrl || '') : ''}">
-          <button id="pg-lookup" class="btn btn-ghost btn-sm" type="button">Look up</button>
-        </div>
-        <span id="pg-steam-status" class="mono" style="font-size:11px; color:var(--ink-dim);"></span>
+  if (existing) {
+    renderDetailsStep(existing, null);
+  } else {
+    renderModeChoice();
+  }
+
+  function renderModeChoice() {
+    const html = `
+      <div class="eyebrow">Propose a Game</div>
+      <h2 style="font-size:22px; margin-top:10px;">How do you want to add it?</h2>
+      <div class="field" style="margin-top:20px;">
+        <label>Steam store link or App ID</label>
+        <input id="pg-steam0" type="text" placeholder="https://store.steampowered.com/app/1426210">
       </div>
-      <div class="field"><label>Title</label><input id="pg-title" type="text" required value="${isEdit ? MG.escapeHtml(existing.title) : ''}"></div>
-      <div class="grid-2">
-        <div class="field"><label>Min players</label><input id="pg-min" type="number" min="1" value="${isEdit ? (existing.minPlayers || 2) : 2}"></div>
-        <div class="field"><label>Max players</label><input id="pg-max" type="number" min="1" value="${isEdit ? (existing.maxPlayers || 4) : 4}"></div>
+      <button class="btn btn-primary" type="button" id="pg-lookup0" style="width:100%; margin-top:12px;">Look Up on Steam</button>
+      <p id="pg-steam0-status" class="mono" style="font-size:11px; color:var(--ink-dim); margin-top:8px; min-height:14px;"></p>
+      <div class="row" style="align-items:center; gap:10px; margin:6px 0;">
+        <div style="flex:1; height:1px; background:var(--line);"></div>
+        <span class="mono" style="font-size:10px; color:var(--ink-dim);">OR</span>
+        <div style="flex:1; height:1px; background:var(--line);"></div>
       </div>
-      <div class="grid-2">
-        <div class="field"><label>Price</label><input id="pg-price" type="text" placeholder="$19.99" value="${isEdit ? MG.escapeHtml(existing.price || '') : ''}"></div>
-        <div class="field"><label>Release date</label><input id="pg-release" type="text" placeholder="21 Oct, 2021" value="${isEdit ? MG.escapeHtml(existing.releaseDate || '') : ''}"></div>
+      <button class="btn btn-ghost" type="button" id="pg-manual" style="width:100%;">Enter Details Manually</button>
+      <div class="row" style="justify-content:flex-end; margin-top:16px;">
+        <button class="btn btn-ghost" type="button" id="pg-cancel0">Cancel</button>
       </div>
-      <div class="field"><label>Platforms (comma separated)</label><input id="pg-platforms" type="text" placeholder="Steam, PC" value="${isEdit ? MG.escapeHtml((existing.platforms || []).join(', ')) : ''}"></div>
-      <div class="field"><label>Genres / tags (comma separated)</label><input id="pg-genres" type="text" placeholder="Co-op, Shooter" value="${isEdit ? MG.escapeHtml((existing.genres || []).join(', ')) : ''}"></div>
-      <div class="field"><label>Description</label><textarea id="pg-desc">${isEdit ? MG.escapeHtml(existing.description || '') : ''}</textarea></div>
-      <div class="row" style="justify-content:flex-end; margin-top:6px;">
-        <button class="btn btn-ghost" type="button" id="pg-cancel">Cancel</button>
-        <button class="btn btn-primary" type="button" id="pg-submit">${isEdit ? 'Save Changes' : 'Add Recommendation'}</button>
-      </div>
-      <p id="pg-error" class="mono" style="color:#ff8a6a; font-size:12px;"></p>
-    </div>
-  `;
-  const modal = MG.openModal(html);
-  let steamAppId = isEdit ? (existing.steamAppId || null) : null;
-  let steamImage = isEdit ? (existing.image || null) : null;
-
-  modal.querySelector('#pg-cancel').onclick = () => MG.closeModal();
-
-  modal.querySelector('#pg-lookup').onclick = async () => {
-    const input = modal.querySelector('#pg-steam').value;
-    const appId = MG.parseSteamAppId(input);
-    const statusEl = modal.querySelector('#pg-steam-status');
-    if (!appId) { statusEl.textContent = "Couldn't find an App ID in that."; return; }
-    statusEl.textContent = 'Looking up…';
-    try {
-      const details = await MG.fetchSteamDetails(appId);
-      steamAppId = appId;
-      steamImage = details.image;
-      modal.querySelector('#pg-title').value = details.name || '';
-      modal.querySelector('#pg-desc').value = details.description || '';
-      modal.querySelector('#pg-platforms').value = Object.keys(details.platforms || {}).filter(p => details.platforms[p]).join(', ');
-      modal.querySelector('#pg-genres').value = (details.categories || []).filter(c => /co-?op/i.test(c)).concat(details.genres || []).join(', ');
-      modal.querySelector('#pg-price').value = details.price || '';
-      modal.querySelector('#pg-release').value = details.releaseDate || '';
-      statusEl.textContent = details.image
-        ? `Found "${details.name}" — fields filled in, edit anything before ${isEdit ? 'saving' : 'adding'}.`
-        : `Found "${details.name}", but Steam isn't giving back a cover image for this App ID — everything else filled in, cover will stay blank.`;
-    } catch (err) {
-      statusEl.textContent = err.message;
-    }
-  };
-
-  modal.querySelector('#pg-submit').onclick = async () => {
-    const title = modal.querySelector('#pg-title').value.trim();
-    const errorEl = modal.querySelector('#pg-error');
-    if (!title) { errorEl.textContent = 'Title is required.'; return; }
-    const submitBtn = modal.querySelector('#pg-submit');
-    submitBtn.disabled = true;
-
-    // Respect whatever's actually typed in the Steam field, even if the
-    // user never clicked "Look up" — otherwise editing that text looks
-    // like a normal field but silently doesn't save.
-    const typedAppId = MG.parseSteamAppId(modal.querySelector('#pg-steam').value);
-    if (typedAppId) steamAppId = typedAppId;
-
-    const fields = {
-      title,
-      minPlayers: parseInt(modal.querySelector('#pg-min').value, 10) || 2,
-      maxPlayers: parseInt(modal.querySelector('#pg-max').value, 10) || 4,
-      platforms: modal.querySelector('#pg-platforms').value.split(',').map(s => s.trim()).filter(Boolean),
-      genres: modal.querySelector('#pg-genres').value.split(',').map(s => s.trim()).filter(Boolean),
-      description: modal.querySelector('#pg-desc').value.trim(),
-      storeUrl: steamAppId ? `https://store.steampowered.com/app/${steamAppId}` : (isEdit ? (existing.storeUrl || '') : ''),
-      steamAppId,
-      image: steamImage,
-      price: modal.querySelector('#pg-price').value.trim(),
-      releaseDate: modal.querySelector('#pg-release').value.trim(),
+    `;
+    const modal = MG.openModal(html);
+    modal.querySelector('#pg-cancel0').onclick = () => MG.closeModal();
+    modal.querySelector('#pg-manual').onclick = () => renderDetailsStep(null, null);
+    modal.querySelector('#pg-lookup0').onclick = async () => {
+      const statusEl = modal.querySelector('#pg-steam0-status');
+      const appId = MG.parseSteamAppId(modal.querySelector('#pg-steam0').value);
+      if (!appId) { statusEl.textContent = "Couldn't find an App ID in that — paste a store link or the numeric App ID."; return; }
+      const btn = modal.querySelector('#pg-lookup0');
+      btn.disabled = true;
+      statusEl.textContent = 'Looking up…';
+      try {
+        const details = await MG.fetchSteamDetails(appId);
+        renderDetailsStep(null, { appId, details });
+      } catch (err) {
+        statusEl.textContent = err.message;
+        btn.disabled = false;
+      }
     };
-    try {
-      if (isEdit) await MG.updateGame(existing.id, fields); else await MG.proposeGame(fields);
-      MG.closeModal();
-    } catch (err) {
-      errorEl.textContent = err.message;
-      submitBtn.disabled = false;
-    }
-  };
+  }
+
+  // existingGame: the game doc being edited, or null for a fresh proposal.
+  // lookup: { appId, details }, set when arriving here right after a
+  // successful Steam lookup on the mode-choice step above; null otherwise
+  // (editing, or a fresh proposal entered manually).
+  function renderDetailsStep(existingGame, lookup) {
+    const isEdit = !!existingGame;
+    const seed = lookup ? {
+      title: lookup.details.name || '',
+      description: lookup.details.description || '',
+      platforms: Object.keys(lookup.details.platforms || {}).filter(p => lookup.details.platforms[p]),
+      genres: (lookup.details.categories || []).filter(c => /co-?op/i.test(c)).concat(lookup.details.genres || []),
+      price: lookup.details.price || '',
+      releaseDate: lookup.details.releaseDate || '',
+      storeUrl: `https://store.steampowered.com/app/${lookup.appId}`,
+    } : (existingGame || {});
+
+    const initialStatus = lookup
+      ? (lookup.details.image
+          ? `Found "${lookup.details.name}" — review the fields below before adding.`
+          : `Found "${lookup.details.name}", but Steam isn't giving back a cover image for this App ID — everything else filled in, cover will stay blank.`)
+      : '';
+
+    const html = `
+      <div class="eyebrow">${isEdit ? 'Edit Game' : 'Propose a Game'}</div>
+      <h2 style="font-size:22px; margin-top:10px;">${isEdit ? 'Update the details' : 'Add a recommendation'}</h2>
+      <div class="stack" style="margin-top:20px;">
+        <div class="field">
+          <label>Steam store link or App ID (optional)</label>
+          <div class="row">
+            <input id="pg-steam" type="text" placeholder="https://store.steampowered.com/app/1426210" style="flex:1;" value="${MG.escapeHtml(seed.storeUrl || '')}">
+            <button id="pg-lookup" class="btn btn-primary btn-sm" type="button">Look Up</button>
+          </div>
+          <span id="pg-steam-status" class="mono" style="font-size:11px; color:var(--ink-dim);">${MG.escapeHtml(initialStatus)}</span>
+        </div>
+        <div class="field"><label>Title</label><input id="pg-title" type="text" required value="${MG.escapeHtml(seed.title || '')}"></div>
+        <div class="grid-2">
+          <div class="field"><label>Min players</label><input id="pg-min" type="number" min="1" value="${seed.minPlayers || 2}"></div>
+          <div class="field"><label>Max players</label><input id="pg-max" type="number" min="1" value="${seed.maxPlayers || 4}"></div>
+        </div>
+        <div class="grid-2">
+          <div class="field"><label>Price</label><input id="pg-price" type="text" placeholder="$19.99" value="${MG.escapeHtml(seed.price || '')}"></div>
+          <div class="field"><label>Release date</label><input id="pg-release" type="text" placeholder="21 Oct, 2021" value="${MG.escapeHtml(seed.releaseDate || '')}"></div>
+        </div>
+        <div class="field"><label>Platforms (comma separated)</label><input id="pg-platforms" type="text" placeholder="Steam, PC" value="${MG.escapeHtml((seed.platforms || []).join(', '))}"></div>
+        <div class="field"><label>Genres / tags (comma separated)</label><input id="pg-genres" type="text" placeholder="Co-op, Shooter" value="${MG.escapeHtml((seed.genres || []).join(', '))}"></div>
+        <div class="field"><label>Description</label><textarea id="pg-desc">${MG.escapeHtml(seed.description || '')}</textarea></div>
+        <div class="row" style="justify-content:space-between; margin-top:6px; align-items:center;">
+          ${isEdit ? '<span></span>' : '<button class="btn btn-ghost btn-sm" type="button" id="pg-back">← Start over</button>'}
+          <div class="row">
+            <button class="btn btn-ghost" type="button" id="pg-cancel">Cancel</button>
+            <button class="btn btn-primary" type="button" id="pg-submit">${isEdit ? 'Save Changes' : 'Add Recommendation'}</button>
+          </div>
+        </div>
+        <p id="pg-error" class="mono" style="color:#ff8a6a; font-size:12px;"></p>
+      </div>
+    `;
+    const modal = MG.openModal(html);
+    let steamAppId = lookup ? lookup.appId : (isEdit ? (existingGame.steamAppId || null) : null);
+    let steamImage = lookup ? lookup.details.image : (isEdit ? (existingGame.image || null) : null);
+
+    modal.querySelector('#pg-cancel').onclick = () => MG.closeModal();
+    const backBtn = modal.querySelector('#pg-back');
+    if (backBtn) backBtn.onclick = () => renderModeChoice();
+
+    modal.querySelector('#pg-lookup').onclick = async () => {
+      const input = modal.querySelector('#pg-steam').value;
+      const appId = MG.parseSteamAppId(input);
+      const statusEl = modal.querySelector('#pg-steam-status');
+      if (!appId) { statusEl.textContent = "Couldn't find an App ID in that."; return; }
+      statusEl.textContent = 'Looking up…';
+      try {
+        const details = await MG.fetchSteamDetails(appId);
+        steamAppId = appId;
+        steamImage = details.image;
+        modal.querySelector('#pg-title').value = details.name || '';
+        modal.querySelector('#pg-desc').value = details.description || '';
+        modal.querySelector('#pg-platforms').value = Object.keys(details.platforms || {}).filter(p => details.platforms[p]).join(', ');
+        modal.querySelector('#pg-genres').value = (details.categories || []).filter(c => /co-?op/i.test(c)).concat(details.genres || []).join(', ');
+        modal.querySelector('#pg-price').value = details.price || '';
+        modal.querySelector('#pg-release').value = details.releaseDate || '';
+        statusEl.textContent = details.image
+          ? `Found "${details.name}" — fields filled in, edit anything before ${isEdit ? 'saving' : 'adding'}.`
+          : `Found "${details.name}", but Steam isn't giving back a cover image for this App ID — everything else filled in, cover will stay blank.`;
+      } catch (err) {
+        statusEl.textContent = err.message;
+      }
+    };
+
+    modal.querySelector('#pg-submit').onclick = async () => {
+      const title = modal.querySelector('#pg-title').value.trim();
+      const errorEl = modal.querySelector('#pg-error');
+      if (!title) { errorEl.textContent = 'Title is required.'; return; }
+      const submitBtn = modal.querySelector('#pg-submit');
+      submitBtn.disabled = true;
+
+      // Respect whatever's actually typed in the Steam field, even if the
+      // user never (re-)clicked "Look up" — otherwise editing that text
+      // looks like a normal field but silently doesn't save.
+      const typedAppId = MG.parseSteamAppId(modal.querySelector('#pg-steam').value);
+      if (typedAppId) steamAppId = typedAppId;
+
+      const fields = {
+        title,
+        minPlayers: parseInt(modal.querySelector('#pg-min').value, 10) || 2,
+        maxPlayers: parseInt(modal.querySelector('#pg-max').value, 10) || 4,
+        platforms: modal.querySelector('#pg-platforms').value.split(',').map(s => s.trim()).filter(Boolean),
+        genres: modal.querySelector('#pg-genres').value.split(',').map(s => s.trim()).filter(Boolean),
+        description: modal.querySelector('#pg-desc').value.trim(),
+        storeUrl: steamAppId ? `https://store.steampowered.com/app/${steamAppId}` : (isEdit ? (existingGame.storeUrl || '') : ''),
+        steamAppId,
+        image: steamImage,
+        price: modal.querySelector('#pg-price').value.trim(),
+        releaseDate: modal.querySelector('#pg-release').value.trim(),
+      };
+      try {
+        if (isEdit) await MG.updateGame(existingGame.id, fields); else await MG.proposeGame(fields);
+        MG.closeModal();
+      } catch (err) {
+        errorEl.textContent = err.message;
+        submitBtn.disabled = false;
+      }
+    };
+  }
 };
 
 MG.openProposeGameModal = function () { MG.openGameFormModal(null); };

@@ -34,6 +34,16 @@ a:hover{ color:#fff; }
 
 .panel{ background:linear-gradient(155deg, #161c22 0%, #0f1317 100%); border:1px solid var(--line); box-shadow:inset 0 1px 0 rgba(255,255,255,.05); position:relative; }
 
+/* Pending Requests, when there actually are some — meant to be impossible
+   to scroll past. Empty state instead uses .quiet-line below, no panel. */
+.panel-alert{ border-color:var(--accent); animation:mg-alert-pulse 2.4s ease-in-out infinite; }
+@keyframes mg-alert-pulse{
+  0%,100%{ box-shadow:inset 0 1px 0 rgba(255,255,255,.05), 0 0 16px -6px var(--accent); }
+  50%{ box-shadow:inset 0 1px 0 rgba(255,255,255,.05), 0 0 34px -4px var(--accent); }
+}
+.quiet-line{ font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.06em; color:var(--ink-dim); display:flex; align-items:center; gap:8px; }
+.quiet-line .dot{ width:6px; height:6px; border-radius:50%; background:var(--line-bright); flex-shrink:0; }
+
 /* layout utilities */
 .row{ display:flex; align-items:center; gap:12px; }
 .stack{ display:flex; flex-direction:column; gap:12px; }
@@ -47,19 +57,43 @@ a:hover{ color:#fff; }
 }
 @media (max-width:640px){
   .wrap{ padding:0 18px; }
-  .grid-2,.grid-3,.grid-4{ grid-template-columns:1fr; }
+  .grid-2,.grid-3,.grid-4,.cal-layout{ grid-template-columns:1fr; }
 }
 
 /* nav shell (rendered by assets/app.js into #mg-nav on every page) */
-.mg-nav{ display:flex; align-items:center; justify-content:space-between; padding:0 40px; height:64px; border-bottom:1px solid var(--line); background:linear-gradient(180deg, #141a20, #0e1216); }
-.mg-nav .brand{ display:flex; align-items:center; gap:10px; text-decoration:none; }
-.mg-nav .mark{ width:28px; height:28px; background:var(--accent); display:flex; align-items:center; justify-content:center; font-family:'Rajdhani',sans-serif; font-weight:700; font-size:13px; color:#0a0d10; }
+.mg-nav{ position:relative; display:flex; align-items:center; justify-content:space-between; padding:0 40px; height:64px; border-bottom:1px solid var(--line); background:linear-gradient(180deg, #141a20, #0e1216); }
+.mg-nav .brand{ display:flex; align-items:center; gap:10px; text-decoration:none; flex-shrink:0; }
+.mg-nav .mark{ width:28px; height:28px; background:var(--accent); display:flex; align-items:center; justify-content:center; font-family:'Rajdhani',sans-serif; font-weight:700; font-size:13px; color:#0a0d10; flex-shrink:0; }
 .mg-nav .wordmark{ font-family:'Rajdhani',sans-serif; font-weight:700; font-size:15px; letter-spacing:.08em; color:var(--ink-strong); }
-.mg-nav .links{ display:flex; gap:28px; margin-left:40px; }
+.mg-nav-panel{ display:flex; align-items:center; flex:1; min-width:0; margin-left:40px; }
+.mg-nav .links{ display:flex; gap:28px; flex-wrap:wrap; }
+.mg-nav-info{ margin-left:auto; flex-shrink:0; }
 .nav-link{ font-family:'Rajdhani',sans-serif; font-weight:600; font-size:14px; text-transform:uppercase; letter-spacing:.07em; color:var(--ink-dim); text-decoration:none; padding-bottom:6px; border-bottom:2px solid transparent; }
 .nav-link.active{ color:#fff; border-bottom-color:#fff; text-shadow:0 0 14px rgba(255,255,255,.75); }
 .nav-link:hover{ color:var(--ink-strong); }
 .online-dot{ width:6px; height:6px; background:#fff; border-radius:50%; box-shadow:0 0 6px #fff; }
+
+/* hamburger toggle — hidden entirely above the mobile breakpoint below */
+.nav-toggle{ display:none; flex-direction:column; align-items:center; justify-content:center; gap:5px; width:36px; height:36px; background:transparent; border:1px solid var(--line-bright); cursor:pointer; padding:0; flex-shrink:0; }
+.nav-toggle span{ display:block; width:18px; height:2px; background:var(--ink-strong); transition:transform .2s ease, opacity .2s ease; }
+.nav-toggle.open span:nth-child(1){ transform:translateY(7px) rotate(45deg); }
+.nav-toggle.open span:nth-child(2){ opacity:0; }
+.nav-toggle.open span:nth-child(3){ transform:translateY(-7px) rotate(-45deg); }
+
+@media (max-width:860px){
+  .mg-nav{ padding:0 18px; }
+  .nav-toggle{ display:flex; }
+  .mg-nav-panel{
+    position:absolute; top:64px; left:0; right:0; z-index:40; margin-left:0;
+    flex-direction:column; align-items:stretch;
+    background:linear-gradient(180deg, #141a20, #0e1216); border-bottom:1px solid var(--line);
+    max-height:0; overflow:hidden; transition:max-height .25s ease;
+  }
+  .mg-nav-panel.open{ max-height:70vh; overflow-y:auto; }
+  .mg-nav .links{ flex-direction:column; gap:0; }
+  .mg-nav .links .nav-link{ padding:14px 18px; border-bottom:1px solid var(--line); }
+  .mg-nav-info{ margin-left:0; padding:14px 18px; justify-content:space-between; }
+}
 
 .avatar{ width:32px; height:32px; background:linear-gradient(155deg,#1d242b,#12161b); border:1px solid var(--line-bright); display:flex; align-items:center; justify-content:center; font-family:'Rajdhani',sans-serif; font-weight:700; font-size:12px; color:var(--ink-strong); flex-shrink:0; overflow:hidden; }
 .avatar.sm{ width:22px; height:22px; font-size:9px; }
@@ -87,6 +121,7 @@ button{ font: inherit; }
 .seg-bar{ display:flex; gap:3px; }
 .seg{ flex:1; height:7px; background:var(--line); }
 .seg.on{ background:linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 70%, #fff 10%)); box-shadow:0 0 8px -1px var(--accent); }
+.seg.off-no{ background:color-mix(in srgb, #ff8a6a 55%, var(--line) 45%); }
 
 .field{ display:flex; flex-direction:column; gap:6px; }
 .field label{ font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-dim); }
@@ -107,6 +142,46 @@ button{ font: inherit; }
 .cover .glyph{ position:absolute; right:6px; top:-14px; font-family:'Rajdhani',sans-serif; font-weight:700; font-size:96px; color:rgba(255,255,255,.06); line-height:1; }
 .cover img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.55; }
 
+/* game detail page banner — a .cover with its own fixed height/positioning,
+   in CSS (not inline) so the mobile override below can actually win. */
+.game-banner{ height:160px; padding:0; position:relative; }
+.game-banner-content{ position:absolute; left:28px; bottom:22px; right:28px; align-items:flex-end; justify-content:space-between; gap:12px; }
+.game-banner-content h1{ font-size:34px; margin-top:8px; }
+@media (max-width:640px){
+  .game-banner{ display:block; height:auto; min-height:160px; padding:18px 20px; }
+  .game-banner-content{ position:static; flex-wrap:wrap; align-items:flex-start; }
+  .game-banner-content h1{ font-size:24px; }
+}
+
+/* Dashboard hero carousel — each slide reuses .cover for its gradient/
+   image/glyph background, absolutely stacked and cross-faded. */
+.hero{ height:300px; }
+.hero-slide{ position:absolute; inset:0; height:auto; padding:0; display:block; opacity:0; visibility:hidden; transition:opacity .6s ease; }
+.hero-slide.active{ opacity:1; visibility:visible; }
+.hero-shade{ position:absolute; inset:0; background:linear-gradient(0deg, rgba(9,11,13,.85) 0%, rgba(9,11,13,.4) 55%, rgba(9,11,13,.05) 100%); }
+.hero-copy{ position:absolute; left:64px; right:64px; bottom:32px; z-index:2; }
+.hero-copy h2{ font-family:'Rajdhani',sans-serif; font-weight:700; font-size:30px; color:#fff; margin-top:8px; }
+.hero-copy p{ color:rgba(255,255,255,.72); margin-top:8px; max-width:56ch; font-size:14px; line-height:1.5; }
+.hero-copy .btn{ margin-top:16px; }
+.hero-dots{ position:absolute; z-index:3; right:20px; bottom:26px; display:flex; flex-direction:column; gap:8px; }
+.hero-dot{ width:8px; height:8px; border-radius:50%; background:rgba(255,255,255,.3); border:none; cursor:pointer; padding:0; }
+.hero-dot.active{ background:var(--accent); box-shadow:0 0 8px -1px var(--accent); }
+.hero-arrow{ position:absolute; top:50%; transform:translateY(-50%); z-index:3; width:34px; height:34px; border-radius:50%; border:1px solid rgba(255,255,255,.3); background:rgba(9,11,13,.4); color:#fff; font-size:18px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.hero-arrow:hover{ background:rgba(9,11,13,.7); border-color:#fff; }
+.hero-arrow.left{ left:14px; }
+.hero-arrow.right{ right:14px; }
+@media (max-width:640px){
+  .hero{ height:240px; }
+  .hero-arrow{ width:28px; height:28px; font-size:15px; }
+  .hero-arrow.left{ left:8px; }
+  .hero-arrow.right{ right:8px; }
+  .hero-dots{ right:10px; bottom:14px; }
+  .hero-copy{ left:44px; right:44px; bottom:18px; }
+  .hero-copy h2{ font-size:20px; }
+  .hero-copy p{ font-size:12px; }
+  .hero-copy .btn{ margin-top:10px; padding:8px 14px; font-size:11px; }
+}
+
 /* milestone roadmap (game detail) */
 .step{ display:flex; gap:14px; }
 .step-dot{ width:16px; height:16px; border:2px solid var(--line-bright); flex-shrink:0; margin-top:2px; }
@@ -117,6 +192,7 @@ button{ font: inherit; }
 .todo-box.done{ background:linear-gradient(155deg, color-mix(in srgb, var(--accent) 85%, #fff 15%), var(--accent)); border-color:var(--accent); }
 
 /* calendar grid */
+.cal-layout{ grid-template-columns:2fr 1fr; }
 .cal-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:1px; background:var(--line); border:1px solid var(--line); }
 .cal-head{ padding:6px 8px; font-size:10px; color:var(--ink-dim); background:linear-gradient(155deg,#161c22,#10141a); }
 .cal-day{ min-height:78px; background:linear-gradient(155deg,#161c22,#10141a); padding:8px; display:flex; flex-direction:column; gap:6px; }
@@ -125,6 +201,12 @@ button{ font: inherit; }
 .ev{ font-family:'JetBrains Mono',monospace; font-size:9.5px; letter-spacing:.03em; padding:3px 6px; text-transform:uppercase; text-decoration:none; display:block; clip-path: polygon(4px 0,100% 0,100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px); }
 .ev-accepted{ background:color-mix(in srgb, var(--accent) 18%, var(--panel)); border:1px solid var(--accent); color:var(--accent); box-shadow:0 0 10px -3px var(--accent); }
 .ev-proposed{ border:1px dashed var(--line-bright); color:var(--ink-dim); }
+@media (max-width:640px){
+  .cal-day{ min-height:52px; padding:4px; gap:3px; }
+  .cal-head{ padding:4px; font-size:9px; }
+  .day-num{ font-size:9px; }
+  .ev{ font-size:8px; padding:2px 3px; }
+}
 
 .bracket{ position:absolute; width:18px; height:18px; }
 
