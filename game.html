@@ -28,6 +28,7 @@
   </div>
 
   <div class="wrap row" style="padding-top:16px; justify-content:flex-end; flex-wrap:wrap; gap:10px;">
+    <button id="btn-check-updates" class="btn btn-ghost btn-sm" type="button" style="display:none;">Check for Updates</button>
     <button id="btn-edit-game" class="btn btn-ghost btn-sm" type="button">Edit</button>
     <button id="btn-demote-game" class="btn btn-ghost btn-sm" type="button">Move to Recommendations</button>
     <button id="btn-archive-game" class="btn btn-ghost btn-sm" type="button">Archive</button>
@@ -119,6 +120,14 @@ function loadGame() {
       suggestBtn.onclick = () => openSteamSuggestModal(g.steamAppId);
     } else {
       suggestBtn.style.display = 'none';
+    }
+
+    const updatesBtn = document.getElementById('btn-check-updates');
+    if (g.steamAppId) {
+      updatesBtn.style.display = '';
+      updatesBtn.onclick = () => openUpdatesModal(g.steamAppId, g.title);
+    } else {
+      updatesBtn.style.display = 'none';
     }
   });
 
@@ -279,6 +288,42 @@ async function openSteamSuggestModal(appId) {
       btn.disabled = false;
     }
   };
+}
+
+// Manual "did this game get a real update since we shelved it" check —
+// pulls that game's own recent Steam announcements (patch notes, DLC,
+// expansions) so a human can glance at the headlines and decide, rather
+// than trying to auto-detect what counts as a "big" update.
+async function openUpdatesModal(appId, title) {
+  const modal = MG.openModal(`
+    <div class="eyebrow">Steam News</div>
+    <h2 style="font-size:22px; margin-top:10px;">${MG.escapeHtml(title)}</h2>
+    <div id="updates-list" class="stack" style="margin-top:18px; max-height:360px; overflow-y:auto;">
+      <p class="mono" style="font-size:11px; color:var(--ink-dim);">Checking Steam…</p>
+    </div>
+    <p class="mono" style="font-size:10.5px; color:var(--ink-dim); margin-top:16px; line-height:1.5;">See something worth revisiting? Close this and use "Move to Recommendations" to bring it back up for a vote.</p>
+    <div class="row" style="justify-content:flex-end; margin-top:14px;">
+      <button class="btn btn-ghost" type="button" id="up-close">Close</button>
+    </div>
+  `);
+  modal.querySelector('#up-close').onclick = () => MG.closeModal();
+
+  try {
+    const data = await MG.fetchSteamNews(appId);
+    const listEl = modal.querySelector('#updates-list');
+    if (!data.news || data.news.length === 0) {
+      listEl.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">No recent announcements found for this game on Steam.</p>`;
+      return;
+    }
+    listEl.innerHTML = data.news.map((n) => `
+      <a href="${MG.escapeHtml(n.url)}" target="_blank" rel="noopener noreferrer" style="display:block; text-decoration:none;">
+        <div style="font-size:13.5px; color:var(--ink-strong);">${MG.escapeHtml(n.title)}</div>
+        <div class="mono" style="font-size:10px; color:var(--ink-dim); margin-top:3px;">${MG.escapeHtml(MG.timeAgo(new Date(n.date * 1000)).toUpperCase())}</div>
+      </a>
+    `).join('<hr style="border:none; border-top:1px solid var(--line); margin:10px 0;">');
+  } catch (err) {
+    modal.querySelector('#updates-list').innerHTML = `<p class="mono" style="color:#ff8a6a; font-size:12px;">${MG.escapeHtml(err.message)}</p>`;
+  }
 }
 
 MG.ready('games', loadGame);

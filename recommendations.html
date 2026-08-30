@@ -57,12 +57,18 @@ function renderGrid() {
     const segs = MG.segBarHtml(g.votes, MG.friendCount);
     const tags = (g.genres || []).slice(0, 2).map((t) => `<span class="chip">${MG.escapeHtml(t)}</span>`).join('');
     const facts = [g.price, g.releaseDate].filter(Boolean).map((t) => `<span class="chip chip-accent">${MG.escapeHtml(t)}</span>`).join('');
+    const coverInner = `
+      ${MG.coverArtHtml(g.title, g.image)}
+      <span class="chip" style="position:relative;">${MG.escapeHtml((g.platforms || [])[0] || 'PC')}</span>
+    `;
+    // Same gradient/glyph placeholder either way — only whether it's a
+    // clickable link to the Steam page depends on having a storeUrl at all.
+    const coverHtml = g.storeUrl
+      ? `<a class="cover" href="${MG.escapeHtml(g.storeUrl)}" target="_blank" rel="noopener noreferrer" title="View ${MG.escapeHtml(g.title)} on Steam" style="background:${MG.coverGradient(g.title)}; text-decoration:none;">${coverInner}</a>`
+      : `<div class="cover" style="background:${MG.coverGradient(g.title)};">${coverInner}</div>`;
     return `
       <div class="panel chamfer" style="display:flex; flex-direction:column;">
-        <div class="cover" style="background:${MG.coverGradient(g.title)};">
-          ${MG.coverArtHtml(g.title, g.image)}
-          <span class="chip" style="position:relative;">${MG.escapeHtml((g.platforms || [])[0] || 'PC')}</span>
-        </div>
+        ${coverHtml}
         <div style="padding:18px; display:flex; flex-direction:column; gap:14px; flex:1;">
           <div>
             <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:19px; color:var(--ink-strong);">${MG.escapeHtml(g.title)}</div>

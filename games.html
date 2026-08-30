@@ -14,9 +14,15 @@
 
 <main id="mg-main" hidden>
   <div class="wrap" style="padding-top:40px;">
-    <div class="eyebrow">Games // Approved Library</div>
-    <h1 style="font-size:32px; margin-top:10px;">The lineup</h1>
-    <p style="margin-top:10px; color:var(--ink-dim); max-width:60ch;">Every game the whole crew has voted in — each with its own milestones and to-do list.</p>
+    <div id="games-eyebrow" class="eyebrow">Games // Approved Library</div>
+    <h1 id="games-title" style="font-size:32px; margin-top:10px;">The lineup</h1>
+    <p id="games-sub" style="margin-top:10px; color:var(--ink-dim); max-width:60ch;">Every game the whole crew has voted in — each with its own milestones and to-do list.</p>
+  </div>
+
+  <div class="wrap row mono" style="padding-top:22px; font-size:11px; color:var(--ink-dim); letter-spacing:.05em; gap:20px;">
+    <span>SHOW:</span>
+    <button class="toggle active" data-status="approved" id="tab-approved">Approved</button>
+    <button class="toggle" data-status="archived" id="tab-archived">Archived</button>
   </div>
 
   <div id="games-grid" class="wrap grid-3" style="padding:22px 40px 60px;"></div>
@@ -27,14 +33,42 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <script src="assets/app.js"></script>
 <script>
-function renderGames() {
-  MG.db.collection('games').where('status', '==', 'approved').onSnapshot((snap) => {
+const TAB_COPY = {
+  approved: {
+    eyebrow: 'Games // Approved Library',
+    title: 'The lineup',
+    sub: "Every game the whole crew has voted in — each with its own milestones and to-do list.",
+    empty: 'No games approved yet — get one through Recommendations first.',
+  },
+  archived: {
+    eyebrow: 'Games // Archived',
+    title: 'Shelved for now',
+    sub: "Games the crew has already played and set aside — if one gets a big update or expansion, check it and move it back to Recommendations to bring it up for a vote again.",
+    empty: "Nothing archived yet.",
+  },
+};
+
+let unsubscribeGames = null;
+let currentStatus = 'approved';
+
+function renderGames(status) {
+  currentStatus = status;
+  document.getElementById('tab-approved').classList.toggle('active', status === 'approved');
+  document.getElementById('tab-archived').classList.toggle('active', status === 'archived');
+  const copy = TAB_COPY[status];
+  document.getElementById('games-eyebrow').textContent = copy.eyebrow;
+  document.getElementById('games-title').textContent = copy.title;
+  document.getElementById('games-sub').textContent = copy.sub;
+
+  if (unsubscribeGames) unsubscribeGames();
+  unsubscribeGames = MG.db.collection('games').where('status', '==', status).onSnapshot((snap) => {
+    if (status !== currentStatus) return; // a stale listener from a tab we've since left
     const games = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => (MG.toDate(b.approvedAt) || 0) - (MG.toDate(a.approvedAt) || 0));
+      .sort((a, b) => (MG.toDate(b.lastActivityAt) || MG.toDate(b.approvedAt) || 0) - (MG.toDate(a.lastActivityAt) || MG.toDate(a.approvedAt) || 0));
 
     const grid = document.getElementById('games-grid');
     if (games.length === 0) {
-      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">No games approved yet — get one through Recommendations first.</div>`;
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">${MG.escapeHtml(copy.empty)}</div>`;
       return;
     }
 
@@ -71,7 +105,11 @@ function renderGames() {
   });
 }
 
-MG.ready('games', renderGames);
+MG.ready('games', () => {
+  document.getElementById('tab-approved').onclick = () => renderGames('approved');
+  document.getElementById('tab-archived').onclick = () => renderGames('archived');
+  renderGames('approved');
+});
 </script>
 </body>
 </html>

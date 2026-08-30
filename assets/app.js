@@ -214,6 +214,13 @@ MG.fetchSteamAchievements = async function (appId) {
   return data;
 };
 
+MG.fetchSteamNews = async function (appId) {
+  const res = await fetch(`${MG.STEAM_PROXY}/news?appid=${encodeURIComponent(appId)}`);
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error || 'Steam lookup failed');
+  return data;
+};
+
 /* ---------- nav + sign-in gate ---------- */
 
 const NAV_ITEMS = [

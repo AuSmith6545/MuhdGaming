@@ -5,10 +5,11 @@
 // Routes:
 //   GET /appdetails?appid=NNN    -> name, description, image, platforms, tags, price, release date
 //   GET /achievements?appid=NNN  -> that game's real Steam achievement list
+//   GET /news?appid=NNN          -> that game's recent Steam announcements (patch notes, DLC, etc.)
 //
-// Both are read-only, return only public game info (never the API key
-// itself), and are cached at the edge for an hour to stay well within
-// Steam's and Cloudflare's free-tier limits.
+// All read-only, return only public game info (never the API key itself),
+// and are cached at the edge for an hour to stay well within Steam's and
+// Cloudflare's free-tier limits.
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -149,6 +150,29 @@ export default {
       });
     }
 
-    return json({ error: "not found", routes: ["/appdetails?appid=", "/achievements?appid="] }, 404);
+    if (url.pathname === "/news") {
+      if (!appid) return json({ error: "missing appid" }, 400);
+
+      const steamUrl = `https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid=${encodeURIComponent(appid)}&count=8&maxlength=300&format=json`;
+      const res = await cachedFetch(steamUrl, ctx);
+      const data = await res.json();
+      const items = data?.appnews?.newsitems || [];
+
+      return json({
+        appid,
+        news: items
+          // Steam's community feed carries fan/curator posts alongside the
+          // developer's own announcements — keep it to the latter so a
+          // "check for updates" glance isn't buried in unrelated posts.
+          .filter((n) => n.feedname === "steam_community_announcements" || n.feed_type === 1)
+          .map((n) => ({
+            title: n.title,
+            url: n.url,
+            date: n.date, // unix seconds
+          })),
+      });
+    }
+
+    return json({ error: "not found", routes: ["/appdetails?appid=", "/achievements?appid=", "/news?appid="] }, 404);
   },
 };
