@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MuhdGaming — Changelog</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Titillium+Web:wght@400;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<div id="mg-nav"></div>
+<div id="mg-gate" class="loading">Loading…</div>
+
+<main id="mg-main" hidden>
+  <div class="wrap" style="padding-top:40px;">
+    <div class="eyebrow">Changelog // What's New</div>
+    <h1 style="font-size:32px; margin-top:10px;">What I've been adding</h1>
+    <p style="margin-top:10px; color:var(--ink-dim); max-width:60ch;">A running log of new features and fixes on the site.</p>
+  </div>
+
+  <div id="changelog-list" class="wrap" style="padding:28px 40px 60px; max-width:760px;"></div>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/changelog.js"></script>
+<script>
+function formatEntryDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function renderChangelog() {
+  const list = document.getElementById('changelog-list');
+  const entries = window.MG_CHANGELOG || [];
+  if (entries.length === 0) {
+    list.innerHTML = `<div class="empty-state">Nothing logged yet.</div>`;
+    return;
+  }
+  list.innerHTML = entries.map((e, i) => `
+    <div class="step">
+      <div class="stack" style="align-items:center; gap:0;">
+        <div class="step-dot done"></div>
+        ${i === entries.length - 1 ? '' : '<div class="step-line"></div>'}
+      </div>
+      <div class="panel chamfer" style="padding:18px; margin-bottom:22px; flex:1;">
+        <div class="mono" style="font-size:10.5px; color:var(--ink-dim);">${MG.escapeHtml(formatEntryDate(e.date)).toUpperCase()}</div>
+        <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:19px; color:var(--ink-strong); margin-top:6px;">${MG.escapeHtml(e.title)}</div>
+        <p style="margin-top:8px; color:var(--ink);">${MG.escapeHtml(e.body)}</p>
+      </div>
+    </div>
+  `).join('');
+}
+
+MG.ready('changelog', renderChangelog);
+</script>
+</body>
+</html>

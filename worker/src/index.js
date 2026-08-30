@@ -3,7 +3,7 @@
 // achievements endpoint needs a secret key that can't live in public code.
 //
 // Routes:
-//   GET /appdetails?appid=NNN    -> name, description, image, platforms, tags
+//   GET /appdetails?appid=NNN    -> name, description, image, platforms, tags, price, release date
 //   GET /achievements?appid=NNN  -> that game's real Steam achievement list
 //
 // Both are read-only, return only public game info (never the API key
@@ -59,11 +59,13 @@ export default {
         appid,
         name: d.name,
         description: d.short_description,
-        image: d.header_image,
+        image: d.header_image || d.capsule_imagev5 || d.capsule_image || null,
         platforms: d.platforms,
         categories: (d.categories || []).map((c) => c.description),
         genres: (d.genres || []).map((g) => g.description),
         storeUrl: `https://store.steampowered.com/app/${appid}`,
+        price: d.is_free ? "Free to Play" : (d.price_overview ? d.price_overview.final_formatted : null),
+        releaseDate: d.release_date ? (d.release_date.date || (d.release_date.coming_soon ? "Coming soon" : null)) : null,
       });
     }
 

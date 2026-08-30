@@ -67,6 +67,31 @@ MG.formatDateTime = function (date) {
     ' · ' + date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 };
 
+// Deterministic per-title cover gradient — same game always gets the same
+// one of these, so it reads as "this game's color" rather than random.
+const COVER_GRADIENTS = [
+  'linear-gradient(135deg,#1a2530,#3a2413)',
+  'linear-gradient(135deg,#1c150e,#3a2508)',
+  'linear-gradient(135deg,#121820,#1c2c3a)',
+  'linear-gradient(135deg,#181018,#2a1a10)',
+];
+MG.coverGradient = function (title) {
+  let hash = 0;
+  for (let i = 0; i < (title || '').length; i++) hash = (hash * 31 + title.charCodeAt(i)) | 0;
+  return COVER_GRADIENTS[Math.abs(hash) % COVER_GRADIENTS.length];
+};
+
+// The gradient + oversized-initials watermark used wherever a game has no
+// Steam header image — a real Steam image (when present) is layered over
+// the top of this at full opacity, so this never has to look "broken",
+// just quieter than a real cover.
+MG.coverArtHtml = function (title, image) {
+  return `
+    ${image ? `<img src="${MG.escapeHtml(image)}" alt="">` : ''}
+    <div class="glyph">${MG.escapeHtml((title || '?').slice(0, 2).toUpperCase())}</div>
+  `;
+};
+
 MG.avatarHtml = function (name, photoURL, size) {
   const cls = 'avatar' + (size === 'sm' ? ' sm' : size === 'lg' ? ' lg' : '');
   if (photoURL) return `<div class="${cls} chamfer-xs"><img src="${MG.escapeHtml(photoURL)}" alt=""></div>`;
@@ -176,6 +201,7 @@ const NAV_ITEMS = [
   ['recommendations', 'Recommendations', 'recommendations.html'],
   ['games', 'Games', 'games.html'],
   ['calendar', 'Calendar', 'calendar.html'],
+  ['changelog', 'Changelog', 'changelog.html'],
 ];
 
 function renderNav(activePage) {
@@ -372,6 +398,8 @@ MG.proposeGame = async function (fields) {
     storeUrl: fields.storeUrl || '',
     steamAppId: fields.steamAppId || null,
     image: fields.image || null,
+    price: fields.price || '',
+    releaseDate: fields.releaseDate || '',
     status: 'proposed',
     proposedBy: { uid, name: MG.user.displayName },
     proposedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -394,6 +422,8 @@ MG.updateGame = async function (gameId, fields) {
     storeUrl: fields.storeUrl || '',
     steamAppId: fields.steamAppId || null,
     image: fields.image || null,
+    price: fields.price || '',
+    releaseDate: fields.releaseDate || '',
     lastActivityAt: firebase.firestore.FieldValue.serverTimestamp(),
   });
 };
@@ -665,6 +695,10 @@ MG.openGameFormModal = function (existing) {
         <div class="field"><label>Min players</label><input id="pg-min" type="number" min="1" value="${isEdit ? (existing.minPlayers || 2) : 2}"></div>
         <div class="field"><label>Max players</label><input id="pg-max" type="number" min="1" value="${isEdit ? (existing.maxPlayers || 4) : 4}"></div>
       </div>
+      <div class="grid-2">
+        <div class="field"><label>Price</label><input id="pg-price" type="text" placeholder="$19.99" value="${isEdit ? MG.escapeHtml(existing.price || '') : ''}"></div>
+        <div class="field"><label>Release date</label><input id="pg-release" type="text" placeholder="21 Oct, 2021" value="${isEdit ? MG.escapeHtml(existing.releaseDate || '') : ''}"></div>
+      </div>
       <div class="field"><label>Platforms (comma separated)</label><input id="pg-platforms" type="text" placeholder="Steam, PC" value="${isEdit ? MG.escapeHtml((existing.platforms || []).join(', ')) : ''}"></div>
       <div class="field"><label>Genres / tags (comma separated)</label><input id="pg-genres" type="text" placeholder="Co-op, Shooter" value="${isEdit ? MG.escapeHtml((existing.genres || []).join(', ')) : ''}"></div>
       <div class="field"><label>Description</label><textarea id="pg-desc">${isEdit ? MG.escapeHtml(existing.description || '') : ''}</textarea></div>
@@ -695,7 +729,11 @@ MG.openGameFormModal = function (existing) {
       modal.querySelector('#pg-desc').value = details.description || '';
       modal.querySelector('#pg-platforms').value = Object.keys(details.platforms || {}).filter(p => details.platforms[p]).join(', ');
       modal.querySelector('#pg-genres').value = (details.categories || []).filter(c => /co-?op/i.test(c)).concat(details.genres || []).join(', ');
-      statusEl.textContent = `Found "${details.name}" — fields filled in, edit anything before ${isEdit ? 'saving' : 'adding'}.`;
+      modal.querySelector('#pg-price').value = details.price || '';
+      modal.querySelector('#pg-release').value = details.releaseDate || '';
+      statusEl.textContent = details.image
+        ? `Found "${details.name}" — fields filled in, edit anything before ${isEdit ? 'saving' : 'adding'}.`
+        : `Found "${details.name}", but Steam isn't giving back a cover image for this App ID — everything else filled in, cover will stay blank.`;
     } catch (err) {
       statusEl.textContent = err.message;
     }
@@ -724,6 +762,8 @@ MG.openGameFormModal = function (existing) {
       storeUrl: steamAppId ? `https://store.steampowered.com/app/${steamAppId}` : (isEdit ? (existing.storeUrl || '') : ''),
       steamAppId,
       image: steamImage,
+      price: modal.querySelector('#pg-price').value.trim(),
+      releaseDate: modal.querySelector('#pg-release').value.trim(),
     };
     try {
       if (isEdit) await MG.updateGame(existing.id, fields); else await MG.proposeGame(fields);

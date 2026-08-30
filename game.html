@@ -13,7 +13,8 @@
 <div id="mg-gate" class="loading">Loading…</div>
 
 <main id="mg-main" hidden>
-  <div id="banner" class="wrap chamfer" style="margin-top:40px; height:160px; position:relative; background:linear-gradient(135deg,#161c22,#10141a);">
+  <div id="banner" class="wrap chamfer cover" style="margin-top:40px; height:160px; padding:0; position:relative; background:linear-gradient(135deg,#161c22,#10141a);">
+    <div id="banner-glyph" class="glyph"></div>
     <div class="bracket" style="top:14px; right:14px; border-top:2px solid #fff; border-right:2px solid #fff;"></div>
     <div class="bracket" style="bottom:14px; left:14px; border-bottom:2px solid #fff; border-left:2px solid #fff;"></div>
     <div class="row" style="position:absolute; left:28px; bottom:22px; right:28px; align-items:flex-end; justify-content:space-between;">
@@ -97,11 +98,17 @@ function loadGame() {
     const voteCount = Object.keys(g.votes || {}).length;
     const statusLabel = g.status === 'archived' ? 'Archived' : g.status === 'proposed' ? 'Back Up For a Vote' : 'Approved';
     document.getElementById('banner-eyebrow').textContent = `${statusLabel} // ${voteCount} of ${MG.friendCount} friends`;
-    if (g.image) document.getElementById('banner').style.background = `linear-gradient(0deg, rgba(9,11,13,.55), rgba(9,11,13,.75)), url('${g.image.replace(/'/g, "%27")}') center/cover`;
+    document.getElementById('banner-glyph').textContent = g.title.slice(0, 2).toUpperCase();
+    document.getElementById('banner').style.background = g.image
+      ? `linear-gradient(0deg, rgba(9,11,13,.55), rgba(9,11,13,.75)), url('${g.image.replace(/'/g, "%27")}') center/cover`
+      : MG.coverGradient(g.title);
 
     const tags = [...(g.platforms || []).slice(0, 1), ...(g.genres || []).slice(0, 2),
       `${g.minPlayers || 1}–${g.maxPlayers || g.minPlayers || 1} Players`];
-    document.getElementById('banner-tags').innerHTML = tags.filter(Boolean).map((t) => `<span class="chip">${MG.escapeHtml(t)}</span>`).join('');
+    const facts = [g.price, g.releaseDate].filter(Boolean);
+    document.getElementById('banner-tags').innerHTML =
+      tags.filter(Boolean).map((t) => `<span class="chip">${MG.escapeHtml(t)}</span>`).join('') +
+      facts.map((t) => `<span class="chip chip-accent">${MG.escapeHtml(t)}</span>`).join('');
 
     const linkEl = document.getElementById('banner-link');
     if (g.storeUrl) { linkEl.href = g.storeUrl; linkEl.style.display = ''; } else { linkEl.style.display = 'none'; }
