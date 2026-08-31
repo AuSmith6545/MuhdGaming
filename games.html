@@ -25,6 +25,15 @@
     <button class="toggle" data-status="archived" id="tab-archived">Archived</button>
   </div>
 
+  <div class="wrap" style="padding-top:18px; max-width:320px;">
+    <div class="field">
+      <label>Search</label>
+      <input id="games-search" type="text" placeholder="Search by title…">
+    </div>
+  </div>
+
+  <div id="games-facets" class="wrap stack" style="padding-top:14px; gap:10px;"></div>
+
   <div id="games-grid" class="wrap grid-3" style="padding:22px 40px 60px;"></div>
 </main>
 
@@ -50,9 +59,111 @@ const TAB_COPY = {
 
 let unsubscribeGames = null;
 let currentStatus = 'approved';
+let currentGames = [];        // unfiltered, from the live snapshot
+let searchTerm = '';
+let activePlatforms = new Set();
+let activeGenres = new Set();
+
+function resetFilters() {
+  searchTerm = '';
+  activePlatforms = new Set();
+  activeGenres = new Set();
+  const search = document.getElementById('games-search');
+  if (search) search.value = '';
+}
+
+function getFilteredGames() {
+  const term = searchTerm.trim().toLowerCase();
+  return currentGames.filter((g) => {
+    if (term && !g.title.toLowerCase().includes(term)) return false;
+    if (activePlatforms.size && !(g.platforms || []).some((p) => activePlatforms.has(p))) return false;
+    if (activeGenres.size && !(g.genres || []).some((gn) => activeGenres.has(gn))) return false;
+    return true;
+  });
+}
+
+function renderFacetRow(label, values, activeSet) {
+  if (values.length === 0) return '';
+  const chips = values.map((v) => `
+    <button class="toggle${activeSet.has(v) ? ' active' : ''}" data-facet-value="${MG.escapeHtml(v)}" type="button">${MG.escapeHtml(v)}</button>
+  `).join('');
+  return `<div class="row mono" style="gap:8px; flex-wrap:wrap; align-items:center; font-size:10.5px; color:var(--ink-dim); letter-spacing:.05em;">
+    <span>${label}:</span>${chips}
+  </div>`;
+}
+
+function renderFacets() {
+  const platforms = [...new Set(currentGames.flatMap((g) => g.platforms || []))].sort();
+  const genres = [...new Set(currentGames.flatMap((g) => g.genres || []))].sort();
+  const hasActiveFilters = searchTerm.trim() || activePlatforms.size || activeGenres.size;
+
+  const facetsEl = document.getElementById('games-facets');
+  facetsEl.innerHTML =
+    renderFacetRow('Platform', platforms, activePlatforms) +
+    renderFacetRow('Genre', genres, activeGenres) +
+    (hasActiveFilters ? `<button class="btn btn-ghost btn-sm" id="btn-clear-filters" type="button" style="width:fit-content;">Clear Filters</button>` : '');
+
+  facetsEl.querySelectorAll('[data-facet-value]').forEach((btn) => {
+    btn.onclick = () => {
+      const row = btn.closest('.row');
+      const label = row.querySelector('span').textContent;
+      const set = label === 'Platform:' ? activePlatforms : activeGenres;
+      const val = btn.dataset.facetValue;
+      set.has(val) ? set.delete(val) : set.add(val);
+      renderFacets();
+      renderGrid();
+    };
+  });
+  const clearBtn = document.getElementById('btn-clear-filters');
+  if (clearBtn) {
+    clearBtn.onclick = () => { resetFilters(); renderFacets(); renderGrid(); };
+  }
+}
+
+function renderGrid() {
+  const grid = document.getElementById('games-grid');
+  const copy = TAB_COPY[currentStatus];
+  if (currentGames.length === 0) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">${MG.escapeHtml(copy.empty)}</div>`;
+    return;
+  }
+  const games = getFilteredGames();
+  if (games.length === 0) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">No games match your filters.</div>`;
+    return;
+  }
+
+  grid.innerHTML = games.map((g) => {
+    const facts = [g.price, g.releaseDate].filter(Boolean).map((t) => `<span class="chip chip-accent">${MG.escapeHtml(t)}</span>`).join('');
+    return `
+    <a href="game.html?id=${g.id}" class="panel chamfer" style="display:flex; flex-direction:column; text-decoration:none;">
+      <div class="cover" style="background:${MG.coverGradient(g.title)};">
+        ${MG.coverArtHtml(g.title, g.image)}
+        <span class="chip" style="position:relative;">${MG.escapeHtml((g.platforms || [])[0] || 'PC')}</span>
+      </div>
+      <div style="padding:18px; display:flex; flex-direction:column; gap:10px;">
+        <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:19px; color:var(--ink-strong);">${MG.escapeHtml(g.title)}</div>
+        ${facts ? `<div class="row" style="gap:6px; flex-wrap:wrap;">${facts}</div>` : ''}
+        <div id="progress-${g.id}" class="mono" style="font-size:10.5px; color:var(--ink-dim);">LOADING PROGRESS…</div>
+      </div>
+    </a>
+  `;
+  }).join('');
+
+  games.forEach((g) => {
+    MG.db.collection('games').doc(g.id).collection('milestones').get().then((msSnap) => {
+      const el = document.getElementById(`progress-${g.id}`);
+      if (!el) return;
+      const total = msSnap.size;
+      const done = msSnap.docs.filter((d) => d.data().status === 'done').length;
+      el.textContent = total === 0 ? 'NO MILESTONES YET' : `${done} OF ${total} MILESTONES DONE`;
+    }).catch(() => {});
+  });
+}
 
 function renderGames(status) {
   currentStatus = status;
+  resetFilters();
   document.getElementById('tab-approved').classList.toggle('active', status === 'approved');
   document.getElementById('tab-archived').classList.toggle('active', status === 'archived');
   const copy = TAB_COPY[status];
@@ -63,41 +174,10 @@ function renderGames(status) {
   if (unsubscribeGames) unsubscribeGames();
   unsubscribeGames = MG.db.collection('games').where('status', '==', status).onSnapshot((snap) => {
     if (status !== currentStatus) return; // a stale listener from a tab we've since left
-    const games = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    currentGames = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
       .sort((a, b) => (MG.toDate(b.lastActivityAt) || MG.toDate(b.approvedAt) || 0) - (MG.toDate(a.lastActivityAt) || MG.toDate(a.approvedAt) || 0));
-
-    const grid = document.getElementById('games-grid');
-    if (games.length === 0) {
-      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">${MG.escapeHtml(copy.empty)}</div>`;
-      return;
-    }
-
-    grid.innerHTML = games.map((g) => {
-      const facts = [g.price, g.releaseDate].filter(Boolean).map((t) => `<span class="chip chip-accent">${MG.escapeHtml(t)}</span>`).join('');
-      return `
-      <a href="game.html?id=${g.id}" class="panel chamfer" style="display:flex; flex-direction:column; text-decoration:none;">
-        <div class="cover" style="background:${MG.coverGradient(g.title)};">
-          ${MG.coverArtHtml(g.title, g.image)}
-          <span class="chip" style="position:relative;">${MG.escapeHtml((g.platforms || [])[0] || 'PC')}</span>
-        </div>
-        <div style="padding:18px; display:flex; flex-direction:column; gap:10px;">
-          <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:19px; color:var(--ink-strong);">${MG.escapeHtml(g.title)}</div>
-          ${facts ? `<div class="row" style="gap:6px; flex-wrap:wrap;">${facts}</div>` : ''}
-          <div id="progress-${g.id}" class="mono" style="font-size:10.5px; color:var(--ink-dim);">LOADING PROGRESS…</div>
-        </div>
-      </a>
-    `;
-    }).join('');
-
-    games.forEach((g) => {
-      MG.db.collection('games').doc(g.id).collection('milestones').get().then((msSnap) => {
-        const el = document.getElementById(`progress-${g.id}`);
-        if (!el) return;
-        const total = msSnap.size;
-        const done = msSnap.docs.filter((d) => d.data().status === 'done').length;
-        el.textContent = total === 0 ? 'NO MILESTONES YET' : `${done} OF ${total} MILESTONES DONE`;
-      }).catch(() => {});
-    });
+    renderFacets();
+    renderGrid();
   }, (err) => {
     console.error(err);
     document.getElementById('games-grid').innerHTML =
@@ -108,6 +188,7 @@ function renderGames(status) {
 MG.ready('games', () => {
   document.getElementById('tab-approved').onclick = () => renderGames('approved');
   document.getElementById('tab-archived').onclick = () => renderGames('archived');
+  document.getElementById('games-search').oninput = (e) => { searchTerm = e.target.value; renderGrid(); };
   renderGames('approved');
 });
 </script>

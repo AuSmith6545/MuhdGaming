@@ -86,7 +86,7 @@ Routes (both public, read-only, cached at the edge for an hour):
 
 The Steam Web API key the achievements route needs is stored as a Cloudflare Worker **secret** (`STEAM_API_KEY`), set directly via `npx wrangler secret put STEAM_API_KEY` from the `worker/` folder — it's never in this repo. To redeploy after editing `worker/src/index.js`: `cd worker && npx wrangler deploy`.
 
-Still to build (site-side, not the proxy): wiring these routes into the actual recommendation form (paste a Steam URL → auto-fill) and the game-approval flow (seed the milestone board from `/achievements`). The self-updating-milestones stretch goal (auto-checking milestones as friends unlock the real achievement) stays future work — it needs friends to link a Steam ID and the stack's first recurring background job, so it's deliberately not blocking the two features above.
+**Site-side wiring: built.** The Propose/Edit Game form looks a title or Steam URL up via `/appdetails` and auto-fills title/description/cover/price/release date/platforms/genres; "Suggest from Steam" on a game's page seeds its milestone board by picking real achievements from `/achievements`; "Check for Updates" pulls that game's recent announcements from `/news` to help decide whether a shelved game is worth another vote. The self-updating-milestones stretch goal (auto-checking milestones as friends unlock the real achievement) stays future work — it needs friends to link a Steam ID and the stack's first recurring background job.
 
 ## Site structure
 

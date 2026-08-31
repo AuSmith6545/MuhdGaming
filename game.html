@@ -59,7 +59,7 @@
 
   </div>
 
-  <div class="wrap" style="padding:0 40px 60px;">
+  <div class="wrap" style="padding:0 40px 28px;">
     <div class="panel chamfer" style="padding:22px;">
       <div class="eyebrow">Notes</div>
       <div id="notes-list" class="stack" style="margin-top:18px;"></div>
@@ -67,6 +67,14 @@
         <input id="note-input" type="text" placeholder="Add a note…" style="flex:1; background:var(--panel-2); border:1px solid var(--line-bright); color:var(--ink-strong); padding:10px 14px; font-family:inherit;">
         <button class="btn btn-primary btn-sm" type="submit">Post</button>
       </form>
+    </div>
+  </div>
+
+  <div class="wrap" style="padding:0 40px 60px;">
+    <div class="panel chamfer" style="padding:22px;">
+      <div class="eyebrow">Session History</div>
+      <div id="session-history-summary" class="mono" style="font-size:11px; color:var(--ink-dim); margin-top:12px; letter-spacing:.05em;">LOADING…</div>
+      <div id="session-history-list" style="margin-top:14px;"></div>
     </div>
   </div>
 </main>
@@ -198,6 +206,27 @@ function loadGame() {
     });
   });
 
+  // Session history — every "accepted" session for this game whose date has
+  // already passed counts as a play. Deliberately not a separate "completed"
+  // status: accepted + past is enough to know a night actually happened,
+  // with no extra write path or firestore.rules change needed. Single
+  // equality filter (gameId) + client-side date/status filtering, matching
+  // this app's no-composite-index convention.
+  MG.db.collection('sessions').where('gameId', '==', gameId).onSnapshot((snap) => {
+    const now = new Date();
+    const past = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((s) => s.status === 'accepted')
+      .map((s) => ({ ...s, when: MG.toDate(s.dateTime) }))
+      .filter((s) => s.when && s.when <= now)
+      .sort((a, b) => b.when - a.when);
+    renderSessionHistory(past);
+  }, (err) => {
+    console.error(err);
+    const el = document.getElementById('session-history-summary');
+    if (el) el.textContent = '';
+  });
+
   ref.collection('notes').orderBy('createdAt').onSnapshot((snap) => {
     const list = document.getElementById('notes-list');
     if (!list) return; // game doc was deleted while this page was open
@@ -252,6 +281,33 @@ function loadGame() {
     if (!confirm('Archive this game? It will drop off the Games library.')) return;
     MG.archiveGame(gameId).then(() => { location.href = 'games.html'; }).catch((e) => alert(e.message));
   };
+}
+
+function renderSessionHistory(past) {
+  const summaryEl = document.getElementById('session-history-summary');
+  const listEl = document.getElementById('session-history-list');
+  if (!summaryEl || !listEl) return; // game doc was deleted while this page was open
+
+  if (past.length === 0) {
+    summaryEl.textContent = 'NOT PLAYED YET';
+    listEl.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">Accepted sessions show up here once their date has passed.</p>`;
+    return;
+  }
+
+  summaryEl.textContent = `PLAYED ${past.length} TIME${past.length === 1 ? '' : 'S'} · LAST ON ${MG.formatDateTime(past[0].when).toUpperCase()}`;
+  listEl.innerHTML = past.map((s, i) => {
+    const attendees = Object.entries(s.rsvps || {}).filter(([, r]) => r.choice === 'yes');
+    return `
+      <div class="row" style="justify-content:space-between; align-items:flex-start; gap:12px; padding:${i === 0 ? '0' : '12px'} 0 12px; ${i === 0 ? '' : 'border-top:1px solid var(--line);'}">
+        <div>
+          <div style="font-size:13.5px; color:var(--ink-strong);">${MG.escapeHtml(MG.formatDateTime(s.when))}</div>
+          ${s.notes ? `<div style="font-size:12px; color:var(--ink-dim); margin-top:3px;">"${MG.escapeHtml(s.notes)}"</div>` : ''}
+        </div>
+        <div class="row" style="gap:4px; flex-shrink:0;">
+          ${attendees.length ? attendees.map(([uid, r]) => MG.resolveAvatarHtml(uid, r.name, r.photoURL, 'sm')).join('') : `<span class="mono" style="font-size:10px; color:var(--ink-dim);">NO RSVPS</span>`}
+        </div>
+      </div>`;
+  }).join('');
 }
 
 async function openSteamSuggestModal(appId) {
