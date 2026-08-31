@@ -23,7 +23,7 @@
         <h1 id="banner-title">…</h1>
         <div id="banner-tags" class="row" style="gap:8px; margin-top:12px; flex-wrap:wrap;"></div>
       </div>
-      <a id="banner-link" href="#" target="_blank" class="mono chip" style="text-decoration:none; display:none;">VIEW ON STEAM ↗</a>
+      <a id="banner-link" href="#" target="_blank" rel="noopener noreferrer" class="mono chip" style="text-decoration:none; display:none;">VIEW ON STEAM ↗</a>
     </div>
   </div>
 
@@ -112,7 +112,8 @@ function loadGame() {
       facts.map((t) => `<span class="chip chip-accent">${MG.escapeHtml(t)}</span>`).join('');
 
     const linkEl = document.getElementById('banner-link');
-    if (g.storeUrl) { linkEl.href = g.storeUrl; linkEl.style.display = ''; } else { linkEl.style.display = 'none'; }
+    const safeStoreUrl = MG.safeUrl(g.storeUrl);
+    if (safeStoreUrl) { linkEl.href = safeStoreUrl; linkEl.style.display = ''; } else { linkEl.style.display = 'none'; }
 
     const suggestBtn = document.getElementById('btn-suggest-steam');
     if (g.steamAppId) {
@@ -129,6 +130,14 @@ function loadGame() {
     } else {
       updatesBtn.style.display = 'none';
     }
+
+    // Withdrawing/archiving/demoting undoes someone else's proposal
+    // outright, so — unlike Edit — these are restricted to the proposer
+    // or an admin, enforced by firestore.rules; hidden here so the button
+    // isn't sitting there just to fail with a permission error.
+    const canManage = (g.proposedBy && g.proposedBy.uid) === MG.user.uid || MG.isAdmin;
+    document.getElementById('btn-demote-game').style.display = canManage ? '' : 'none';
+    document.getElementById('btn-archive-game').style.display = canManage ? '' : 'none';
   });
 
   ref.collection('milestones').orderBy('order').onSnapshot((snap) => {
@@ -152,7 +161,7 @@ function loadGame() {
             <div style="font-weight:600; color:var(--ink-strong); font-size:15px;">${MG.escapeHtml(m.title)}</div>
             <div class="mono" style="font-size:10.5px; color:var(--ink-dim); margin-top:4px;">${
               m.status === 'done' ? 'DONE' : m.status === 'doing' ? 'IN PROGRESS' : 'NOT STARTED'
-            }${m.createdBy ? ' · ' + MG.escapeHtml(MG.resolveName(m.createdByUid, m.createdBy)) : ''}</div>
+            }${(m.updatedBy || m.createdBy) ? ' · ' + MG.escapeHtml(MG.resolveName(m.updatedByUid || m.createdByUid, m.updatedBy || m.createdBy)) : ''}</div>
           </div>
         </div>`;
     }).join('');
@@ -173,10 +182,15 @@ function loadGame() {
     }
     list.innerHTML = snap.docs.map((d) => {
       const t = d.data();
+      const who = t.updatedBy || t.createdBy;
+      const whoUid = t.updatedByUid || t.createdByUid;
       return `
-        <div class="row">
-          <button class="todo-box${t.done ? ' done' : ''}" data-todo="${d.id}" data-done="${t.done}"></button>
-          <div style="flex:1; font-size:14px; color:${t.done ? 'var(--ink-dim)' : 'var(--ink-strong)'}; text-decoration:${t.done ? 'line-through' : 'none'};">${MG.escapeHtml(t.text)}</div>
+        <div class="row" style="align-items:flex-start;">
+          <button class="todo-box${t.done ? ' done' : ''}" data-todo="${d.id}" data-done="${t.done}" style="margin-top:2px;"></button>
+          <div style="flex:1;">
+            <div style="font-size:14px; color:${t.done ? 'var(--ink-dim)' : 'var(--ink-strong)'}; text-decoration:${t.done ? 'line-through' : 'none'};">${MG.escapeHtml(t.text)}</div>
+            ${who ? `<div class="mono" style="font-size:10px; color:var(--ink-dim); margin-top:3px;">${t.done ? 'DONE' : 'ADDED'} BY ${MG.escapeHtml(MG.resolveName(whoUid, who))}</div>` : ''}
+          </div>
         </div>`;
     }).join('');
     list.querySelectorAll('[data-todo]').forEach((btn) => {

@@ -62,9 +62,10 @@ function renderGrid() {
       <span class="chip" style="position:relative;">${MG.escapeHtml((g.platforms || [])[0] || 'PC')}</span>
     `;
     // Same gradient/glyph placeholder either way — only whether it's a
-    // clickable link to the Steam page depends on having a storeUrl at all.
-    const coverHtml = g.storeUrl
-      ? `<a class="cover" href="${MG.escapeHtml(g.storeUrl)}" target="_blank" rel="noopener noreferrer" title="View ${MG.escapeHtml(g.title)} on Steam" style="background:${MG.coverGradient(g.title)}; text-decoration:none;">${coverInner}</a>`
+    // clickable link to the Steam page depends on having a (safe) storeUrl.
+    const safeStoreUrl = MG.safeUrl(g.storeUrl);
+    const coverHtml = safeStoreUrl
+      ? `<a class="cover" href="${MG.escapeHtml(safeStoreUrl)}" target="_blank" rel="noopener noreferrer" title="View ${MG.escapeHtml(g.title)} on Steam" style="background:${MG.coverGradient(g.title)}; text-decoration:none;">${coverInner}</a>`
       : `<div class="cover" style="background:${MG.coverGradient(g.title)};">${coverInner}</div>`;
     return `
       <div class="panel chamfer" style="display:flex; flex-direction:column;">
@@ -86,7 +87,9 @@ function renderGrid() {
             </div>
             <div class="row" style="gap:8px;">
               <button class="btn btn-ghost btn-sm" data-edit="${g.id}" type="button">Edit</button>
-              <button class="btn btn-ghost btn-sm" data-withdraw="${g.id}" type="button">Withdraw</button>
+              ${(g.proposedBy && g.proposedBy.uid) === MG.user.uid || MG.isAdmin
+                ? `<button class="btn btn-ghost btn-sm" data-withdraw="${g.id}" type="button">Withdraw</button>`
+                : ''}
             </div>
           </div>
         </div>

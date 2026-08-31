@@ -18,11 +18,12 @@
       <div class="eyebrow">Calendar</div>
       <h1 style="font-size:32px; margin-top:10px;">Sessions</h1>
     </div>
-    <div class="row" style="gap:14px;">
+    <div class="row" style="gap:14px; flex-wrap:wrap;">
       <div class="row" style="gap:0;">
         <button class="toggle active" id="view-month">Month</button>
         <button class="toggle" id="view-list">List</button>
       </div>
+      <button id="btn-mark-away" class="btn btn-ghost">+ Mark Unavailable</button>
       <button id="btn-propose-session" class="btn btn-primary">+ Propose a Session</button>
     </div>
   </div>
@@ -36,14 +37,22 @@
         <button class="btn btn-ghost btn-sm" id="month-next">Next →</button>
       </div>
       <div id="cal-body"></div>
-      <div class="row" style="gap:20px; margin-top:16px;">
+      <div class="row" style="gap:20px; margin-top:16px; flex-wrap:wrap;">
         <div class="row" style="gap:8px;"><span style="width:12px; height:12px; border:1px solid var(--accent); box-shadow:0 0 8px -1px var(--accent);"></span><span class="mono" style="font-size:10.5px; color:var(--ink-dim);">ACCEPTED</span></div>
         <div class="row" style="gap:8px;"><span style="width:12px; height:12px; border:1px dashed var(--line-bright);"></span><span class="mono" style="font-size:10.5px; color:var(--ink-dim);">PROPOSED — AWAITING RSVPS</span></div>
+        <div class="row" style="gap:8px;"><span class="away-dot">●</span><span class="mono" style="font-size:10.5px; color:var(--ink-dim);">SOMEONE'S AWAY</span></div>
       </div>
     </div>
 
-    <div id="session-detail" class="panel chamfer" style="padding:22px;">
-      <p style="color:var(--ink-dim); font-size:13px;">Select a session to see who's in.</p>
+    <div class="stack" style="gap:20px;">
+      <div id="session-detail" class="panel chamfer" style="padding:22px;">
+        <p style="color:var(--ink-dim); font-size:13px;">Select a session to see who's in.</p>
+      </div>
+
+      <div class="panel chamfer" style="padding:22px;">
+        <div class="eyebrow">Who's Away</div>
+        <div id="away-list" class="stack" style="margin-top:16px;"></div>
+      </div>
     </div>
 
   </div>
@@ -55,6 +64,7 @@
 <script src="assets/app.js"></script>
 <script>
 let allSessions = [];
+let allUnavailability = [];
 let viewMode = 'month';
 let monthCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let selectedSessionId = null;
@@ -90,8 +100,13 @@ function renderMonth() {
       <a href="#" class="ev ${s.status === 'accepted' ? 'ev-accepted' : 'ev-proposed'}" data-select="${s.id}">
         ${MG.escapeHtml(s.gameTitle.slice(0, 10))} · ${s.when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
       </a>`).join('');
+    const away = MG.awayNamesOn(MG.toISODate(date), allUnavailability);
     return `<div class="cal-day${date.getMonth() !== monthCursor.getMonth() ? ' other-month' : ''}">
-      <span class="day-num">${date.getDate()}</span>${evHtml}
+      <div class="row" style="justify-content:space-between; align-items:flex-start;">
+        <span class="day-num">${date.getDate()}</span>
+        ${away.length ? `<span class="away-dot" title="${MG.escapeHtml(away.join(', '))} away">●</span>` : ''}
+      </div>
+      ${evHtml}
     </div>`;
   }).join('');
 
@@ -179,7 +194,9 @@ function renderDetail() {
 
     <div class="row" style="gap:8px; padding-top:16px; margin-top:16px; border-top:1px solid var(--line);">
       <button class="btn btn-ghost btn-sm" id="btn-edit-session" type="button">Edit</button>
-      <button class="btn btn-ghost btn-sm" id="btn-cancel-session" type="button">Cancel Session</button>
+      ${(s.proposedBy && s.proposedBy.uid) === MG.user.uid || MG.isAdmin
+        ? `<button class="btn btn-ghost btn-sm" id="btn-cancel-session" type="button">Cancel Session</button>`
+        : ''}
     </div>
   `;
 
@@ -187,14 +204,96 @@ function renderDetail() {
     btn.onclick = () => { btn.disabled = true; MG.setRsvp(s.id, btn.dataset.rsvp).catch((e) => alert(e.message)); };
   });
   panel.querySelector('#btn-edit-session').onclick = () => MG.openEditSessionModal(s);
-  panel.querySelector('#btn-cancel-session').onclick = () => {
-    if (!confirm('Cancel this session?')) return;
-    MG.cancelSession(s.id).catch((e) => alert(e.message));
+  const cancelBtn = panel.querySelector('#btn-cancel-session');
+  if (cancelBtn) {
+    cancelBtn.onclick = () => {
+      if (!confirm('Cancel this session?')) return;
+      MG.cancelSession(s.id).catch((e) => alert(e.message));
+    };
+  }
+}
+
+function formatDateStr(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function formatRange(start, end) {
+  return start === end ? formatDateStr(start) : `${formatDateStr(start)} – ${formatDateStr(end)}`;
+}
+
+// Who's Away — forward-looking only (hides ranges that have fully passed)
+// so it doesn't just accumulate every entry ever added.
+function renderAwayPanel() {
+  const list = document.getElementById('away-list');
+  const todayIso = MG.toISODate(new Date());
+  const upcoming = allUnavailability
+    .filter((u) => u.end >= todayIso)
+    .sort((a, b) => a.start < b.start ? -1 : a.start > b.start ? 1 : 0);
+
+  if (upcoming.length === 0) {
+    list.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">No one's marked away right now.</p>`;
+    return;
+  }
+  list.innerHTML = upcoming.map((u) => {
+    const canRemove = u.uid === MG.user.uid || MG.isAdmin;
+    return `
+    <div class="row" style="justify-content:space-between; align-items:flex-start;">
+      <div>
+        <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:14px; color:var(--ink-strong);">${MG.escapeHtml(MG.resolveName(u.uid, u.name))}</div>
+        <div class="mono" style="font-size:10.5px; color:var(--ink-dim); margin-top:3px;">${MG.escapeHtml(formatRange(u.start, u.end).toUpperCase())}${u.note ? ' · ' + MG.escapeHtml(u.note) : ''}</div>
+      </div>
+      ${canRemove ? `<button class="btn btn-ghost btn-sm" data-remove-away="${u.id}" type="button">Remove</button>` : ''}
+    </div>`;
+  }).join('<hr style="border:none; border-top:1px solid var(--line); margin:2px 0;">');
+
+  list.querySelectorAll('[data-remove-away]').forEach((btn) => {
+    btn.onclick = () => {
+      btn.disabled = true;
+      MG.deleteUnavailability(btn.dataset.removeAway).catch((e) => alert(e.message));
+    };
+  });
+}
+
+function openMarkUnavailableModal() {
+  const html = `
+    <div class="eyebrow">Mark Unavailable</div>
+    <h2 style="font-size:22px; margin-top:10px;">When are you away?</h2>
+    <div class="stack" style="margin-top:20px;">
+      <div class="grid-2">
+        <div class="field"><label>From</label><input id="ua-start" type="date" required></div>
+        <div class="field"><label>To</label><input id="ua-end" type="date"></div>
+      </div>
+      <div class="field"><label>Note (optional)</label><input id="ua-note" type="text" placeholder="Vacation, work trip, etc."></div>
+      <div class="row" style="justify-content:flex-end; margin-top:6px;">
+        <button class="btn btn-ghost" type="button" id="ua-cancel">Cancel</button>
+        <button class="btn btn-primary" type="button" id="ua-submit">Mark Unavailable</button>
+      </div>
+      <p id="ua-error" class="mono" style="color:#ff8a6a; font-size:12px;"></p>
+    </div>
+  `;
+  const modal = MG.openModal(html);
+  modal.querySelector('#ua-cancel').onclick = () => MG.closeModal();
+  modal.querySelector('#ua-submit').onclick = async () => {
+    const start = modal.querySelector('#ua-start').value;
+    const end = modal.querySelector('#ua-end').value || start;
+    const errorEl = modal.querySelector('#ua-error');
+    if (!start) { errorEl.textContent = 'Pick a start date.'; return; }
+    if (end < start) { errorEl.textContent = 'End date must be on or after the start date.'; return; }
+    const btn = modal.querySelector('#ua-submit');
+    btn.disabled = true;
+    try {
+      await MG.addUnavailability({ start, end, note: modal.querySelector('#ua-note').value.trim() });
+      MG.closeModal();
+    } catch (err) {
+      errorEl.textContent = err.message;
+      btn.disabled = false;
+    }
   };
 }
 
 function renderCalendar() {
   document.getElementById('btn-propose-session').onclick = () => MG.openProposeSessionModal();
+  document.getElementById('btn-mark-away').onclick = () => openMarkUnavailableModal();
   document.getElementById('month-prev').onclick = () => { monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() - 1, 1); renderCalendarBody(); };
   document.getElementById('month-next').onclick = () => { monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1); renderCalendarBody(); };
   document.getElementById('view-month').onclick = () => { viewMode = 'month'; document.getElementById('view-month').classList.add('active'); document.getElementById('view-list').classList.remove('active'); renderCalendarBody(); };
@@ -212,6 +311,15 @@ function renderCalendar() {
   }, (err) => {
     console.error(err);
     document.getElementById('cal-body').innerHTML = `<p class="mono" style="color:#ff8a6a; font-size:12px;">${MG.escapeHtml(err.message)}</p>`;
+  });
+
+  MG.db.collection('unavailability').onSnapshot((snap) => {
+    allUnavailability = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    renderCalendarBody();
+    renderAwayPanel();
+  }, (err) => {
+    console.error(err);
+    document.getElementById('away-list').innerHTML = `<p class="mono" style="color:#ff8a6a; font-size:12px;">${MG.escapeHtml(err.message)}</p>`;
   });
 }
 

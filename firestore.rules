@@ -76,9 +76,37 @@ service cloud.firestore {
       allow delete: if request.auth != null && (uid == request.auth.uid || isAdmin());
     }
 
-    match /games/{gameId} {
-      allow read, write: if isFriend();
+    // Editing a game's details (title, Steam link, price, ...) and voting
+    // stay open to any friend — that's what lets someone else fix a bad
+    // Steam ID, and voting is inherently something every friend does for
+    // themselves. Withdrawing/archiving/demoting a game is different: it
+    // undoes someone else's proposal outright, so those require the
+    // proposer or an admin. This function recognizes an update as one of
+    // those two specifically by its *result* rather than by field name
+    // (archiving always ends in status "archived"; demoting is always
+    // "approved" -> "proposed") — a friend's own vote never produces
+    // either of those transitions (voting only ever moves a game from
+    // "proposed" to "approved"), so this can't accidentally catch voting
+    // or an ordinary detail edit (which never changes status at all).
+    function isGameArchiveOrDemote() {
+      return request.resource.data.status == 'archived' ||
+        (resource.data.status == 'approved' && request.resource.data.status == 'proposed');
+    }
 
+    match /games/{gameId} {
+      allow read, create: if isFriend();
+      allow update: if isFriend() && (
+        !isGameArchiveOrDemote() ||
+        request.auth.uid == resource.data.proposedBy.uid ||
+        isAdmin()
+      );
+      // Withdrawing (deleting the doc outright) is only ever proposed by
+      // the same "undoes someone else's proposal" logic above.
+      allow delete: if isFriend() && (request.auth.uid == resource.data.proposedBy.uid || isAdmin());
+
+      // Milestones/todos/notes stay fully open — see MEMORY / conversation:
+      // these are meant to be a shared, collaborative checklist, not
+      // owned by whoever happened to add an item.
       match /milestones/{milestoneId} {
         allow read, write: if isFriend();
       }
@@ -91,7 +119,29 @@ service cloud.firestore {
     }
 
     match /sessions/{sessionId} {
-      allow read, write: if isFriend();
+      allow read, create: if isFriend();
+      // RSVPing and editing the date/time/notes stay open to any friend;
+      // only cancelling (the one update that sets status to "cancelled")
+      // requires the proposer or an admin, same reasoning as games above.
+      allow update: if isFriend() && (
+        request.resource.data.status != 'cancelled' ||
+        request.auth.uid == resource.data.proposedBy.uid ||
+        isAdmin()
+      );
+      allow delete: if isFriend() && (request.auth.uid == resource.data.proposedBy.uid || isAdmin());
+    }
+
+    // "I'm away Aug 10-17" entries on the Calendar page. Unlike games/
+    // sessions/todos (shared, group-owned items anyone in the crew can
+    // edit), this is a personal statement about one person's own time —
+    // any friend can read the full calendar of who's away, but only the
+    // entry's own creator (or an admin, for cleanup) can change or remove
+    // it. request.resource.data.uid must match the signed-in user on
+    // create, so no one can create an entry claiming to be someone else's.
+    match /unavailability/{entryId} {
+      allow read: if isFriend();
+      allow create: if isFriend() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isFriend() && (resource.data.uid == request.auth.uid || isAdmin());
     }
   }
 }

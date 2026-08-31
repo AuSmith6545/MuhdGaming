@@ -48,6 +48,16 @@ MG.toDate = function (ts) {
   return typeof ts.toDate === 'function' ? ts.toDate() : ts;
 };
 
+// 'YYYY-MM-DD' in the *local* calendar day — deliberately not
+// date.toISOString().slice(0,10), which converts to UTC first and can
+// silently shift the date by a day depending on timezone.
+MG.toISODate = function (date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
 MG.timeAgo = function (date) {
   if (!date) return '';
   const secs = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -198,6 +208,19 @@ MG.parseSteamAppId = function (input) {
   if (/^\d+$/.test(trimmed)) return trimmed;
   const m = trimmed.match(/\/app\/(\d+)/);
   return m ? m[1] : null;
+};
+
+// Only ever treat a stored URL (storeUrl, a Steam news link, ...) as safe
+// to use for an href/target if it's plain http(s). The propose/edit form
+// only ever writes real steampowered.com links here, but Firestore rules
+// don't (and can't reasonably) enforce that at the field level — any friend
+// can write any field to a game doc — so this is what actually stops a
+// javascript: URL from running when someone clicks "View on Steam", not
+// just what the form happens to produce.
+MG.safeUrl = function (url) {
+  if (typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  return /^https?:\/\//i.test(trimmed) ? trimmed : null;
 };
 
 MG.fetchSteamDetails = async function (appId) {
@@ -558,12 +581,20 @@ function touchGame(batch, gameId) {
   });
 }
 
+// Milestones/todos/notes stay collaborative — any friend can add to or
+// change one, same as always. What's new is updatedBy/updatedByUid: it
+// starts equal to whoever created the item and moves to whoever last
+// changed its status/done state, so "who's actually doing this" is visible
+// without locking who's allowed to touch it. A real assign/resolve model
+// (distinct creator vs. resolver, an explicit "done by") is the planned
+// next step once this is in place.
 MG.addMilestone = async function (gameId, title) {
   const batch = MG.db.batch();
   const ref = MG.db.collection('games').doc(gameId).collection('milestones').doc();
   batch.set(ref, {
     title, status: 'todo', order: Date.now(),
     createdBy: MG.user.displayName, createdByUid: MG.user.uid,
+    updatedBy: MG.user.displayName, updatedByUid: MG.user.uid,
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   });
@@ -574,7 +605,9 @@ MG.addMilestone = async function (gameId, title) {
 MG.setMilestoneStatus = async function (gameId, milestoneId, status) {
   const batch = MG.db.batch();
   batch.update(MG.db.collection('games').doc(gameId).collection('milestones').doc(milestoneId), {
-    status, updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    status,
+    updatedBy: MG.user.displayName, updatedByUid: MG.user.uid,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   });
   touchGame(batch, gameId);
   await batch.commit();
@@ -586,6 +619,7 @@ MG.addTodo = async function (gameId, text) {
   batch.set(ref, {
     text, done: false, assignedTo: null,
     createdBy: MG.user.displayName, createdByUid: MG.user.uid,
+    updatedBy: MG.user.displayName, updatedByUid: MG.user.uid,
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   });
@@ -596,7 +630,9 @@ MG.addTodo = async function (gameId, text) {
 MG.toggleTodo = async function (gameId, todoId, done) {
   const batch = MG.db.batch();
   batch.update(MG.db.collection('games').doc(gameId).collection('todos').doc(todoId), {
-    done, updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    done,
+    updatedBy: MG.user.displayName, updatedByUid: MG.user.uid,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   });
   touchGame(batch, gameId);
   await batch.commit();
@@ -677,6 +713,42 @@ MG.updateSession = async function (sessionId, fields) {
 // doc (and its RSVP history) isn't deleted.
 MG.cancelSession = async function (sessionId) {
   await MG.db.collection('sessions').doc(sessionId).update({ status: 'cancelled' });
+};
+
+/* ---------- writes: unavailability (calendar "away" ranges) ---------- */
+
+// start/end are 'YYYY-MM-DD' strings (inclusive both ends), straight out of
+// a <input type="date"> — no Date/Timestamp conversion, so there's no
+// timezone math to get wrong for a plain calendar-day range. Any friend can
+// mark (or later remove) any entry, same trust model as the rest of the
+// app — this isn't trying to police who's "allowed" to say they're away.
+MG.addUnavailability = async function (fields) {
+  const uid = MG.user.uid;
+  await MG.db.collection('unavailability').add({
+    uid,
+    name: MG.user.displayName,
+    start: fields.start,
+    end: fields.end,
+    note: fields.note || '',
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+};
+
+MG.deleteUnavailability = async function (entryId) {
+  await MG.db.collection('unavailability').doc(entryId).delete();
+};
+
+MG.fetchUnavailability = async function () {
+  const snap = await MG.db.collection('unavailability').get();
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+};
+
+// Display names of anyone marked away covering a given 'YYYY-MM-DD' date —
+// shared by the Propose/Edit Session modals and the calendar's month grid.
+MG.awayNamesOn = function (dateStr, entries) {
+  return (entries || [])
+    .filter((u) => u.start <= dateStr && dateStr <= u.end)
+    .map((u) => MG.resolveName(u.uid, u.name));
 };
 
 /* ---------- join requests (self-service "Request Access") ---------- */
@@ -917,9 +989,14 @@ MG.openProposeGameModal = function () { MG.openGameFormModal(null); };
 
 MG.openProposeSessionModal = async function () {
   let games = [];
+  let unavailability = [];
   try {
-    const snap = await MG.db.collection('games').where('status', '==', 'approved').get();
-    games = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const [gamesSnap, uaEntries] = await Promise.all([
+      MG.db.collection('games').where('status', '==', 'approved').get(),
+      MG.fetchUnavailability(),
+    ]);
+    games = gamesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    unavailability = uaEntries;
   } catch (err) { console.error(err); }
 
   if (games.length === 0) {
@@ -941,7 +1018,11 @@ MG.openProposeSessionModal = async function () {
     <h2 style="font-size:22px; margin-top:10px;">Pick a time to play</h2>
     <div class="stack" style="margin-top:20px;">
       <div class="field"><label>Game</label><select id="ps-game">${optionsHtml}</select></div>
-      <div class="field"><label>Date &amp; time</label><input id="ps-when" type="datetime-local"></div>
+      <div class="field">
+        <label>Date &amp; time</label>
+        <input id="ps-when" type="datetime-local">
+        <span id="ps-away-warning" class="mono" style="font-size:11px; color:#ff8a6a;"></span>
+      </div>
       <div class="field"><label>Notes (optional)</label><textarea id="ps-notes"></textarea></div>
       <div class="row" style="justify-content:flex-end; margin-top:6px;">
         <button class="btn btn-ghost" type="button" id="ps-cancel">Cancel</button>
@@ -952,6 +1033,11 @@ MG.openProposeSessionModal = async function () {
   `;
   const modal = MG.openModal(html);
   modal.querySelector('#ps-cancel').onclick = () => MG.closeModal();
+  modal.querySelector('#ps-when').oninput = (e) => {
+    const dateStr = e.target.value.slice(0, 10);
+    const away = dateStr ? MG.awayNamesOn(dateStr, unavailability) : [];
+    modal.querySelector('#ps-away-warning').textContent = away.length ? `⚠ ${away.join(', ')} marked unavailable that day.` : '';
+  };
   modal.querySelector('#ps-submit').onclick = async () => {
     const whenVal = modal.querySelector('#ps-when').value;
     const errorEl = modal.querySelector('#ps-error');
@@ -985,7 +1071,11 @@ MG.openEditSessionModal = function (session) {
     <div class="eyebrow">Edit Session</div>
     <h2 style="font-size:22px; margin-top:10px;">${MG.escapeHtml(session.gameTitle)}</h2>
     <div class="stack" style="margin-top:20px;">
-      <div class="field"><label>Date &amp; time</label><input id="es-when" type="datetime-local" value="${local}"></div>
+      <div class="field">
+        <label>Date &amp; time</label>
+        <input id="es-when" type="datetime-local" value="${local}">
+        <span id="es-away-warning" class="mono" style="font-size:11px; color:#ff8a6a;"></span>
+      </div>
       <div class="field"><label>Notes</label><textarea id="es-notes">${MG.escapeHtml(session.notes || '')}</textarea></div>
       <div class="row" style="justify-content:flex-end; margin-top:6px;">
         <button class="btn btn-ghost" type="button" id="es-cancel">Cancel</button>
@@ -996,6 +1086,16 @@ MG.openEditSessionModal = function (session) {
   `;
   const modal = MG.openModal(html);
   modal.querySelector('#es-cancel').onclick = () => MG.closeModal();
+
+  let unavailability = [];
+  const updateAwayWarning = () => {
+    const dateStr = modal.querySelector('#es-when').value.slice(0, 10);
+    const away = dateStr ? MG.awayNamesOn(dateStr, unavailability) : [];
+    modal.querySelector('#es-away-warning').textContent = away.length ? `⚠ ${away.join(', ')} marked unavailable that day.` : '';
+  };
+  modal.querySelector('#es-when').oninput = updateAwayWarning;
+  MG.fetchUnavailability().then((entries) => { unavailability = entries; updateAwayWarning(); }).catch(() => {});
+
   modal.querySelector('#es-submit').onclick = async () => {
     const whenVal = modal.querySelector('#es-when').value;
     const errorEl = modal.querySelector('#es-error');

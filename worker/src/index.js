@@ -40,9 +40,13 @@ function formatPrice(overview) {
   return null;
 }
 
-async function cachedFetch(url, ctx) {
+// cacheKeyUrl lets a caller fetch an authenticated URL (one with a secret
+// key on it, like /achievements below) while caching under a key-free
+// stand-in instead — Cloudflare's edge cache isn't publicly readable, but a
+// secret has no business being part of a cache key regardless.
+async function cachedFetch(url, ctx, cacheKeyUrl) {
   const cache = caches.default;
-  const cacheKey = new Request(url, { method: "GET" });
+  const cacheKey = new Request(cacheKeyUrl || url, { method: "GET" });
   const hit = await cache.match(cacheKey);
   if (hit) return hit;
 
@@ -134,7 +138,9 @@ export default {
       if (!env.STEAM_API_KEY) return json({ error: "STEAM_API_KEY not configured on the worker" }, 500);
 
       const steamUrl = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?key=${env.STEAM_API_KEY}&appid=${encodeURIComponent(appid)}`;
-      const res = await cachedFetch(steamUrl, ctx);
+      // Cache under a key-free stand-in URL — see cachedFetch's comment.
+      const cacheKeyUrl = `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?appid=${encodeURIComponent(appid)}`;
+      const res = await cachedFetch(steamUrl, ctx, cacheKeyUrl);
       const data = await res.json();
       const achievements = data?.game?.availableGameStats?.achievements || [];
 
