@@ -245,32 +245,17 @@ button{ font: inherit; }
 .empty-state{ padding:40px; text-align:center; color:var(--ink-dim); font-size:14px; }
 .loading{ padding:40px; text-align:center; color:var(--ink-dim); font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; }
 
-/* "⋯" overflow action menu — used on condensed cards (Vote strip,
-   Watchlist) and the game detail banner to keep secondary actions from
-   crowding out the primary one(s). Markup: a .menu wrapping a
-   [data-menu-btn] button + a .menu-panel; see MG.initMenus. */
+/* "⋯" overflow action menu — used on the Recommendations/Watchlist cards
+   and the game detail banner to keep secondary actions from crowding out
+   the primary one(s). Markup: a .menu wrapping a [data-menu-btn] button
+   + a .menu-panel; see MG.initMenus. position:fixed (not absolute) and
+   placed via JS off the button's own rect, so it's never at the mercy of
+   a scrolling or overflow-hidden ancestor clipping it. */
 .menu{ position:relative; flex-shrink:0; }
 .menu-btn{ width:28px; height:28px; display:flex; align-items:center; justify-content:center; border:1px solid var(--line-bright); background:transparent; color:var(--ink-dim); font-size:16px; line-height:1; cursor:pointer; padding:0; }
 .menu-btn:hover{ border-color:#fff; color:#fff; }
-/* position:fixed (not absolute) and placed via JS off the button's own
-   rect (see MG.initMenus) — a card in the Vote strip's horizontally
-   scrolling row would otherwise clip an absolutely-positioned panel,
-   since overflow-x:auto on an ancestor forces overflow-y to clip too. */
 .menu-panel{ position:fixed; min-width:180px; background:linear-gradient(155deg, #161c22 0%, #0f1317 100%); border:1px solid var(--line-bright); box-shadow:0 12px 30px -8px rgba(0,0,0,.65); z-index:200; display:none; flex-direction:column; padding:4px; }
 .menu-panel.open{ display:flex; }
 .menu-panel button{ text-align:left; background:transparent; border:none; color:var(--ink); font-family:'Titillium Web',sans-serif; font-size:13px; padding:9px 10px; cursor:pointer; white-space:nowrap; }
 .menu-panel button:hover{ background:var(--panel-2); color:var(--ink-strong); }
 .menu-panel button.danger:hover{ color:#ff8a6a; }
-
-/* Vote strip (Games page) — a condensed, horizontally-scrolling row of
-   pending recommendations sitting above the Approved/Archived tabs, so
-   voting stays visible without eating the same vertical space as the
-   main grid. A freshly-proposed card reuses .panel-alert (defined above)
-   for its pulsing "new" callout. */
-.vote-strip{ display:flex; gap:14px; overflow-x:auto; padding-bottom:6px; }
-.vote-card{ flex:0 0 300px; padding:14px; }
-.vote-card .cover{ width:56px; height:56px; flex-shrink:0; padding:0; align-items:stretch; }
-.vote-card .cover .glyph{ font-size:48px; right:-4px; top:-10px; }
-@media (max-width:640px){
-  .vote-card{ flex-basis:260px; }
-}

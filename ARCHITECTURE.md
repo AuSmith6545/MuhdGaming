@@ -35,8 +35,9 @@ games (collection)
      (Watchlist page) for things worth remembering that aren't ready for a
      vote yet. A "proposed" game where every friend has voted but it didn't
      reach unanimous yes is a dead end without a status of its own: the
-     Games page detects that case client-side (yes+no >= friendCount) and
-     swaps its Yes/No buttons for Remove/Move-to-Watchlist instead),
+     Games page's Recommendations tab detects that case client-side
+     (yes+no >= friendCount) and swaps its Yes/No buttons for
+     Remove/Move-to-Watchlist instead),
      proposedBy {uid, name}, proposedAt, votes ({uid: true}),
      approvedAt, lastActivityAt (bumped on any milestone/todo write — this is
      what powers the Dashboard's "Recently Active" widget without a
@@ -105,8 +106,7 @@ Plain static pages, no build step — sharing one stylesheet and one JS file so 
 
 ```
 index.html            Dashboard (home)
-games.html             Approved/Archived library, plus a "Up for a Vote"
-                        strip above it for anything currently proposed
+games.html             Recommendations / Approved / Archived, as tabs
 watchlist.html          Flat, no-vote list of things worth keeping an eye on
 game.html?id=          One game's milestones, to-dos, notes (Steam-achievement suggestions live here)
 calendar.html          Propose + RSVP + browse sessions

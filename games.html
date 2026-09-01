@@ -41,25 +41,28 @@
     <button id="btn-propose-game" class="btn btn-primary">+ Propose a Game</button>
   </div>
 
-  <div id="vote-strip-section" class="wrap" style="padding-top:26px;">
-    <div class="eyebrow">Up for a Vote</div>
-    <div id="vote-strip" class="vote-strip" style="margin-top:14px;"></div>
-  </div>
-
-  <div class="wrap row mono" style="padding-top:26px; font-size:11px; color:var(--ink-dim); letter-spacing:.05em; gap:20px;">
+  <div class="wrap row mono" style="padding-top:26px; font-size:11px; color:var(--ink-dim); letter-spacing:.05em; gap:20px; flex-wrap:wrap;">
     <span>SHOW:</span>
+    <button class="toggle" data-status="proposed" id="tab-proposed">Recommendations</button>
     <button class="toggle active" data-status="approved" id="tab-approved">Approved</button>
     <button class="toggle" data-status="archived" id="tab-archived">Archived</button>
   </div>
 
-  <div class="wrap" style="padding-top:18px; max-width:320px;">
-    <div class="field">
-      <label>Search</label>
-      <input id="games-search" type="text" placeholder="Search by title…">
-    </div>
+  <div id="sort-row" class="wrap row mono" style="padding-top:20px; font-size:11px; color:var(--ink-dim); letter-spacing:.05em; gap:20px; display:none;">
+    <span>SORT:</span>
+    <button class="toggle active" data-sort="newest" id="sort-newest">Newest</button>
+    <button class="toggle" data-sort="votes" id="sort-votes">Most Votes</button>
   </div>
 
-  <div id="games-facets" class="wrap stack" style="padding-top:14px; gap:10px;"></div>
+  <div id="search-facets-wrap">
+    <div class="wrap" style="padding-top:18px; max-width:320px;">
+      <div class="field">
+        <label>Search</label>
+        <input id="games-search" type="text" placeholder="Search by title…">
+      </div>
+    </div>
+    <div id="games-facets" class="wrap stack" style="padding-top:14px; gap:10px;"></div>
+  </div>
 
   <div id="games-grid" class="wrap grid-3" style="padding:22px 40px 60px;"></div>
 </main>
@@ -70,11 +73,17 @@
 <script src="assets/app.js"></script>
 <script>
 const TAB_COPY = {
+  proposed: {
+    eyebrow: 'Games // Up for a Vote',
+    title: 'Cast your vote',
+    sub: "Games someone in the crew wants to play — vote yes or no, and a unanimous yes moves it straight into the library.",
+    empty: 'No recommendations yet — be the first to propose one.',
+  },
   approved: {
     eyebrow: 'Games // Approved Library',
     title: 'The lineup',
     sub: "Every game the whole crew has voted in — each with its own milestones and to-do list.",
-    empty: 'No games approved yet — get one through a vote above first.',
+    empty: 'No games approved yet — get one through a vote first.',
   },
   archived: {
     eyebrow: 'Games // Archived',
@@ -84,16 +93,11 @@ const TAB_COPY = {
   },
 };
 
-// A freshly-proposed vote card gets a pulsing accent border for this long,
-// so a new arrival stands out from recs that have been sitting a while —
-// time-based on purpose, so it never needs per-person read-tracking.
-const NEW_VOTE_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
-
 let unsubscribeGames = null;
 let currentStatus = 'approved';
 let currentGames = [];        // unfiltered, from the live snapshot
-let voteGames = [];            // status === 'proposed', drives the vote strip
-let searchTerm = '';
+let currentSort = 'newest';   // Recommendations tab only
+let searchTerm = '';          // Approved/Archived tabs only
 let activePlatforms = new Set();
 let activeGenres = new Set();
 
@@ -101,8 +105,11 @@ function resetFilters() {
   searchTerm = '';
   activePlatforms = new Set();
   activeGenres = new Set();
+  currentSort = 'newest';
   const search = document.getElementById('games-search');
   if (search) search.value = '';
+  document.getElementById('sort-newest').classList.add('active');
+  document.getElementById('sort-votes').classList.remove('active');
 }
 
 function getFilteredGames() {
@@ -153,6 +160,112 @@ function renderFacets() {
   }
 }
 
+// Recommendation card (Recommendations tab) — same layout/fields as the
+// original Recommendations page, plus the newer lifecycle: a game where
+// everyone's voted but it didn't reach unanimous yes swaps Yes/No for
+// Remove/Move to Watchlist (the only way back into a vote from there is a
+// fresh promote from the Watchlist, same restart pattern as demoting an
+// approved game). Edit/Withdraw/Move to Watchlist live in the "..."
+// overflow menu, same component used on the game detail page.
+function renderRecCard(g) {
+  const { yes, no } = MG.voteCounts(g.votes);
+  const resolved = MG.friendCount > 0 && (yes + no) >= MG.friendCount;
+  const myVote = g.votes && g.votes[MG.user.uid];
+  const isYes = myVote === true;
+  const isNo = myVote === false;
+  const segs = MG.segBarHtml(g.votes, MG.friendCount);
+  const canManage = (g.proposedBy && g.proposedBy.uid) === MG.user.uid || MG.isAdmin;
+  const tags = (g.genres || []).slice(0, 2).map((t) => `<span class="chip">${MG.escapeHtml(t)}</span>`).join('');
+  const facts = [g.price, g.releaseDate].filter(Boolean).map((t) => `<span class="chip chip-accent">${MG.escapeHtml(t)}</span>`).join('');
+  const coverInner = `
+    ${MG.coverArtHtml(g.title, g.image)}
+    <span class="chip" style="position:relative;">${MG.escapeHtml((g.platforms || [])[0] || 'PC')}</span>
+  `;
+  // Same gradient/glyph placeholder either way — only whether it's a
+  // clickable link to the Steam page depends on having a (safe) storeUrl.
+  const safeStoreUrl = MG.safeUrl(g.storeUrl);
+  const coverHtml = safeStoreUrl
+    ? `<a class="cover" href="${MG.escapeHtml(safeStoreUrl)}" target="_blank" rel="noopener noreferrer" title="View ${MG.escapeHtml(g.title)} on Steam" style="background:${MG.coverGradient(g.title)}; text-decoration:none;">${coverInner}</a>`
+    : `<div class="cover" style="background:${MG.coverGradient(g.title)};">${coverInner}</div>`;
+
+  // Remove / Move to Watchlist are proposer-or-admin-only transitions
+  // (same as Withdraw) — a friend who's neither just sees the outcome,
+  // not buttons that would fail on click.
+  const actionsHtml = resolved
+    ? `
+      <div class="mono" style="font-size:10.5px; color:#ff8a6a;">NOT APPROVED — NO MAJORITY</div>
+      ${canManage ? `
+      <div class="row" style="gap:6px; margin-top:8px;">
+        <button class="btn btn-ghost btn-sm" data-withdraw="${g.id}" type="button">Remove</button>
+        <button class="btn btn-ghost btn-sm" data-to-watchlist="${g.id}" type="button">Move to Watchlist</button>
+      </div>` : ''}`
+    : `
+      <div class="row" style="gap:6px;">
+        <button class="rsvp-btn${isYes ? ' active-yes' : ''}" data-vote="${g.id}" data-choice="yes">Yes</button>
+        <button class="rsvp-btn${isNo ? ' active-no' : ''}" data-vote="${g.id}" data-choice="no">No</button>
+      </div>`;
+
+  const menuItemsHtml = resolved
+    ? `<button type="button" data-edit="${g.id}">Edit</button>`
+    : `
+      <button type="button" data-edit="${g.id}">Edit</button>
+      ${canManage ? `<button type="button" data-to-watchlist="${g.id}">Move to Watchlist</button>` : ''}
+      ${canManage ? `<button type="button" class="danger" data-withdraw="${g.id}">Withdraw</button>` : ''}
+    `;
+
+  return `
+    <div class="panel chamfer" style="display:flex; flex-direction:column;">
+      ${coverHtml}
+      <div style="padding:18px; display:flex; flex-direction:column; gap:14px; flex:1;">
+        <div class="row" style="justify-content:space-between; align-items:flex-start; gap:8px;">
+          <div>
+            <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:19px; color:var(--ink-strong);">${MG.escapeHtml(g.title)}</div>
+            <div class="row" style="gap:6px; margin-top:8px; flex-wrap:wrap;">${tags}${facts}</div>
+          </div>
+          <div class="menu">
+            <button type="button" class="menu-btn" data-menu-btn aria-label="More actions">&#8942;</button>
+            <div class="menu-panel">${menuItemsHtml}</div>
+          </div>
+        </div>
+        <div class="mono" style="font-size:10.5px; color:var(--ink-dim);">PROPOSED BY ${MG.escapeHtml(MG.resolveName(g.proposedBy && g.proposedBy.uid, g.proposedBy && g.proposedBy.name))}</div>
+        <div style="margin-top:auto; display:flex; flex-direction:column; gap:8px;">
+          <div class="seg-bar">${segs}</div>
+          <div class="mono" style="font-size:10.5px; color:var(--ink-dim);">${yes} YES${no ? ` · ${no} NO` : ''} OF ${MG.friendCount} FRIENDS</div>
+          ${actionsHtml}
+        </div>
+      </div>
+    </div>`;
+}
+
+function wireRecCardActions(grid) {
+  grid.querySelectorAll('[data-vote]').forEach((btn) => {
+    btn.onclick = () => {
+      btn.disabled = true;
+      MG.setVote(btn.dataset.vote, btn.dataset.choice === 'yes').catch((e) => alert(e.message));
+    };
+  });
+  grid.querySelectorAll('[data-edit]').forEach((btn) => {
+    btn.onclick = () => {
+      const game = currentGames.find((g) => g.id === btn.dataset.edit);
+      if (game) MG.openGameFormModal(game);
+    };
+  });
+  grid.querySelectorAll('[data-to-watchlist]').forEach((btn) => {
+    btn.onclick = () => {
+      btn.disabled = true;
+      MG.demoteToWatchlist(btn.dataset.toWatchlist).catch((e) => alert(e.message));
+    };
+  });
+  grid.querySelectorAll('[data-withdraw]').forEach((btn) => {
+    btn.onclick = () => {
+      if (!confirm("Withdraw this recommendation? This can't be undone.")) return;
+      btn.disabled = true;
+      MG.withdrawGame(btn.dataset.withdraw).catch((e) => alert(e.message));
+    };
+  });
+  MG.initMenus(grid);
+}
+
 function renderGrid() {
   const grid = document.getElementById('games-grid');
   const copy = TAB_COPY[currentStatus];
@@ -160,6 +273,18 @@ function renderGrid() {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">${MG.escapeHtml(copy.empty)}</div>`;
     return;
   }
+
+  if (currentStatus === 'proposed') {
+    const sorted = [...currentGames].sort((a, b) =>
+      currentSort === 'votes'
+        ? MG.voteCounts(b.votes).yes - MG.voteCounts(a.votes).yes
+        : (MG.toDate(b.proposedAt) || 0) - (MG.toDate(a.proposedAt) || 0)
+    );
+    grid.innerHTML = sorted.map(renderRecCard).join('');
+    wireRecCardActions(grid);
+    return;
+  }
+
   const games = getFilteredGames();
   if (games.length === 0) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">No games match your filters.</div>`;
@@ -194,113 +319,15 @@ function renderGrid() {
   });
 }
 
-// Vote strip — condensed, horizontally-scrolling cards for every game
-// currently up for a vote, sitting above the Approved/Archived tabs. A
-// card whose full crew has voted but didn't reach unanimous yes swaps its
-// Yes/No buttons for Remove / Move to Watchlist, since voting on it is
-// done — the only way back into a vote from there is a fresh promote from
-// the Watchlist, same restart pattern as demoting an approved game.
-function renderVoteCard(g) {
-  const { yes, no } = MG.voteCounts(g.votes);
-  const resolved = MG.friendCount > 0 && (yes + no) >= MG.friendCount;
-  const myVote = g.votes && g.votes[MG.user.uid];
-  const isYes = myVote === true;
-  const isNo = myVote === false;
-  const segs = MG.segBarHtml(g.votes, MG.friendCount);
-  const proposedAt = MG.toDate(g.proposedAt);
-  const isNew = proposedAt && (Date.now() - proposedAt.getTime()) < NEW_VOTE_WINDOW_MS;
-  const canManage = (g.proposedBy && g.proposedBy.uid) === MG.user.uid || MG.isAdmin;
-
-  // Remove / Move to Watchlist here are the same proposer-or-admin-only
-  // transitions as the overflow menu's Withdraw/Move to Watchlist — a
-  // friend who isn't either just sees the outcome, not buttons that would
-  // fail on click.
-  const actionsHtml = resolved
-    ? `
-      <div class="mono" style="font-size:9.5px; color:#ff8a6a; margin-top:8px;">NOT APPROVED — NO MAJORITY</div>
-      ${canManage ? `
-      <div class="row" style="gap:6px; margin-top:8px;">
-        <button class="btn btn-ghost btn-sm" data-withdraw="${g.id}" type="button">Remove</button>
-        <button class="btn btn-ghost btn-sm" data-to-watchlist="${g.id}" type="button">Move to Watchlist</button>
-      </div>` : ''}`
-    : `
-      <div class="row" style="gap:6px; margin-top:8px;">
-        <button class="rsvp-btn${isYes ? ' active-yes' : ''}" data-vote="${g.id}" data-choice="yes">Yes</button>
-        <button class="rsvp-btn${isNo ? ' active-no' : ''}" data-vote="${g.id}" data-choice="no">No</button>
-      </div>`;
-
-  const menuItemsHtml = resolved
-    ? `<button type="button" data-edit="${g.id}">Edit</button>`
-    : `
-      <button type="button" data-edit="${g.id}">Edit</button>
-      ${canManage ? `<button type="button" data-to-watchlist="${g.id}">Move to Watchlist</button>` : ''}
-      ${canManage ? `<button type="button" class="danger" data-withdraw="${g.id}">Withdraw</button>` : ''}
-    `;
-
-  return `
-    <div class="panel chamfer-sm vote-card${isNew ? ' panel-alert' : ''}">
-      <div class="row" style="gap:12px; align-items:flex-start;">
-        <div class="cover" style="background:${MG.coverGradient(g.title)};">${MG.coverArtHtml(g.title, g.image)}</div>
-        <div style="flex:1; min-width:0;">
-          <div class="row" style="justify-content:space-between; align-items:flex-start; gap:6px;">
-            <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:15px; color:var(--ink-strong); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${MG.escapeHtml(g.title)}</div>
-            <div class="menu">
-              <button type="button" class="menu-btn" data-menu-btn aria-label="More actions">&#8942;</button>
-              <div class="menu-panel">${menuItemsHtml}</div>
-            </div>
-          </div>
-          <div class="seg-bar" style="margin-top:8px;">${segs}</div>
-          <div class="mono" style="font-size:9.5px; color:var(--ink-dim); margin-top:6px;">${yes} YES${no ? ` · ${no} NO` : ''} OF ${MG.friendCount}</div>
-          ${actionsHtml}
-        </div>
-      </div>
-    </div>`;
-}
-
-function renderVoteStrip() {
-  const section = document.getElementById('vote-strip-section');
-  const strip = document.getElementById('vote-strip');
-  if (voteGames.length === 0) {
-    section.style.display = 'none';
-    return;
-  }
-  section.style.display = '';
-  const sorted = [...voteGames].sort((a, b) => (MG.toDate(b.proposedAt) || 0) - (MG.toDate(a.proposedAt) || 0));
-  strip.innerHTML = sorted.map(renderVoteCard).join('');
-
-  strip.querySelectorAll('[data-vote]').forEach((btn) => {
-    btn.onclick = () => {
-      btn.disabled = true;
-      MG.setVote(btn.dataset.vote, btn.dataset.choice === 'yes').catch((e) => alert(e.message));
-    };
-  });
-  strip.querySelectorAll('[data-edit]').forEach((btn) => {
-    btn.onclick = () => {
-      const game = voteGames.find((g) => g.id === btn.dataset.edit);
-      if (game) MG.openGameFormModal(game);
-    };
-  });
-  strip.querySelectorAll('[data-to-watchlist]').forEach((btn) => {
-    btn.onclick = () => {
-      btn.disabled = true;
-      MG.demoteToWatchlist(btn.dataset.toWatchlist).catch((e) => alert(e.message));
-    };
-  });
-  strip.querySelectorAll('[data-withdraw]').forEach((btn) => {
-    btn.onclick = () => {
-      if (!confirm("Remove this from voting? This can't be undone.")) return;
-      btn.disabled = true;
-      MG.withdrawGame(btn.dataset.withdraw).catch((e) => alert(e.message));
-    };
-  });
-  MG.initMenus(strip);
-}
-
 function renderGames(status) {
   currentStatus = status;
   resetFilters();
+  document.getElementById('tab-proposed').classList.toggle('active', status === 'proposed');
   document.getElementById('tab-approved').classList.toggle('active', status === 'approved');
   document.getElementById('tab-archived').classList.toggle('active', status === 'archived');
+  document.getElementById('sort-row').style.display = status === 'proposed' ? '' : 'none';
+  document.getElementById('search-facets-wrap').style.display = status === 'proposed' ? 'none' : '';
+
   const copy = TAB_COPY[status];
   document.getElementById('games-eyebrow').textContent = copy.eyebrow;
   document.getElementById('games-title').textContent = copy.title;
@@ -310,8 +337,9 @@ function renderGames(status) {
   unsubscribeGames = MG.db.collection('games').where('status', '==', status).onSnapshot((snap) => {
     if (status !== currentStatus) return; // a stale listener from a tab we've since left
     currentGames = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => (MG.toDate(b.lastActivityAt) || MG.toDate(b.approvedAt) || 0) - (MG.toDate(a.lastActivityAt) || MG.toDate(a.approvedAt) || 0));
-    renderFacets();
+      .sort((a, b) => (MG.toDate(b.lastActivityAt) || MG.toDate(b.approvedAt) || MG.toDate(b.proposedAt) || 0) -
+                      (MG.toDate(a.lastActivityAt) || MG.toDate(a.approvedAt) || MG.toDate(a.proposedAt) || 0));
+    if (status !== 'proposed') renderFacets();
     renderGrid();
   }, (err) => {
     console.error(err);
@@ -322,19 +350,21 @@ function renderGames(status) {
 
 MG.ready('games', () => {
   document.getElementById('btn-propose-game').onclick = () => MG.openProposeGameModal();
+  document.getElementById('tab-proposed').onclick = () => renderGames('proposed');
   document.getElementById('tab-approved').onclick = () => renderGames('approved');
   document.getElementById('tab-archived').onclick = () => renderGames('archived');
   document.getElementById('games-search').oninput = (e) => { searchTerm = e.target.value; renderGrid(); };
-  renderGames('approved');
+  document.getElementById('sort-newest').onclick = () => setSort('newest');
+  document.getElementById('sort-votes').onclick = () => setSort('votes');
 
-  MG.db.collection('games').where('status', '==', 'proposed').onSnapshot((snap) => {
-    voteGames = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    renderVoteStrip();
-  }, (err) => {
-    console.error(err);
-    document.getElementById('vote-strip').innerHTML =
-      `<p class="mono" style="color:#ff8a6a; font-size:12px;">${MG.escapeHtml(err.message)}</p>`;
-  });
+  function setSort(s) {
+    currentSort = s;
+    document.getElementById('sort-newest').classList.toggle('active', s === 'newest');
+    document.getElementById('sort-votes').classList.toggle('active', s === 'votes');
+    renderGrid();
+  }
+
+  renderGames('approved');
 });
 </script>
 </body>
