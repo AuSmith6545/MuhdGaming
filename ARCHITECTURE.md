@@ -112,6 +112,12 @@ Each page's own inline `<script>` only reads data and renders — the actual wri
 
 Google sign-in is the default, but Firebase Authentication → Sign-in method also has **Email/Password** enabled, for any friend who doesn't have or doesn't want to use a Google account — they create an account with any email address and a password they choose instead. Both methods populate the same `request.auth.token.email` that the security rules and the friends allowlist check, so nothing else about the app treats the two differently: adding that friend's email to the `friends` collection in the console is the exact same step either way.
 
+## PWA / home-screen install
+
+`manifest.json` + per-page `<head>` tags (manifest link, theme-color, `apple-mobile-web-app-*`, a favicon) let the site be added to a phone's home screen and launch full-screen, standalone, no browser chrome. `icons/` holds the app icon (192/512/maskable) and `icons/splash/` holds iOS's static launch-screen images (one per unique iPhone screen size, via `apple-touch-startup-image` — iOS's manifest-based splash auto-generation is unreliable for home-screen web apps, so explicit per-size images are the actual working mechanism). No service worker — not required for home-screen install, and skipped deliberately to avoid a caching layer that would need to stay in sync with every deploy.
+
+**To do:** the current icon/splash artwork is a placeholder — solid `--accent` orange with the plain "MG" nav mark, generated to unblock install support, not a real design pass. Revisit once real branding exists, and consider replacing the static iOS launch image with an **animated** splash — that'd mean building it as an in-page loading animation (the `#mg-gate` "Loading…" state every page already shows while the sign-in gate resolves is the natural place) rather than the native `apple-touch-startup-image`, since Apple's mechanism only supports a static image.
+
 ## One-time setup checklist
 
 1. Create a Firebase project at console.firebase.google.com

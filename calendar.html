@@ -65,7 +65,10 @@
 
     <div class="stack" style="gap:20px;">
       <div id="session-detail" class="panel chamfer" style="padding:22px;">
-        <p style="color:var(--ink-dim); font-size:13px;">Select a session to see who's in.</p>
+        <button class="cal-detail-close" id="btn-close-detail" type="button" aria-label="Close">&times;</button>
+        <div id="session-detail-body">
+          <p style="color:var(--ink-dim); font-size:13px;">Select a session to see who's in.</p>
+        </div>
       </div>
 
       <div class="panel chamfer" style="padding:22px;">
@@ -75,6 +78,7 @@
     </div>
 
   </div>
+  <div id="cal-detail-backdrop"></div>
 </main>
 
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
@@ -87,10 +91,11 @@ let allUnavailability = [];
 let viewMode = 'month';
 let monthCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let selectedSessionId = null;
+let selectedDayIso = null;
 
 function buildMonthCells(monthStart) {
   const year = monthStart.getFullYear(), month = monthStart.getMonth();
-  const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7; // Monday = 0
+  const firstWeekday = new Date(year, month, 1).getDay(); // Sunday = 0
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const daysInPrevMonth = new Date(year, month, 0).getDate();
   const cells = [];
@@ -111,7 +116,7 @@ function renderMonth() {
     monthCursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }).toUpperCase();
 
   const cells = buildMonthCells(monthCursor);
-  const headHtml = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].map((d) => `<div class="cal-head mono">${d}</div>`).join('');
+  const headHtml = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map((d) => `<div class="cal-head mono">${d}</div>`).join('');
 
   const cellsHtml = cells.map((date) => {
     const daySessions = allSessions.filter((s) => s.when && sameDay(s.when, date));
@@ -120,7 +125,7 @@ function renderMonth() {
         ${MG.escapeHtml(s.gameTitle.slice(0, 10))} · ${s.when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
       </a>`).join('');
     const away = MG.awayNamesOn(MG.toISODate(date), allUnavailability);
-    return `<div class="cal-day${date.getMonth() !== monthCursor.getMonth() ? ' other-month' : ''}">
+    return `<div class="cal-day${date.getMonth() !== monthCursor.getMonth() ? ' other-month' : ''}" data-date="${MG.toISODate(date)}">
       <div class="row" style="justify-content:space-between; align-items:flex-start;">
         <span class="day-num">${date.getDate()}</span>
         ${away.length ? `<span class="away-dot" title="${MG.escapeHtml(away.join(', '))} away">●</span>` : ''}
@@ -131,7 +136,10 @@ function renderMonth() {
 
   document.getElementById('cal-body').innerHTML = `<div class="cal-grid">${headHtml}${cellsHtml}</div>`;
   document.getElementById('cal-body').querySelectorAll('[data-select]').forEach((el) => {
-    el.onclick = (e) => { e.preventDefault(); selectSession(el.dataset.select); };
+    el.onclick = (e) => { e.preventDefault(); e.stopPropagation(); selectSession(el.dataset.select); };
+  });
+  document.getElementById('cal-body').querySelectorAll('.cal-day[data-date]').forEach((el) => {
+    el.onclick = () => selectDay(el.dataset.date);
   });
 }
 
@@ -160,13 +168,77 @@ function renderCalendarBody() {
   if (viewMode === 'month') renderMonth(); else renderList();
 }
 
+function openDetailOverlay() {
+  document.getElementById('session-detail').classList.add('open');
+  document.getElementById('cal-detail-backdrop').classList.add('open');
+}
+function closeDetailOverlay() {
+  document.getElementById('session-detail').classList.remove('open');
+  document.getElementById('cal-detail-backdrop').classList.remove('open');
+}
+
 function selectSession(id) {
   selectedSessionId = id;
+  selectedDayIso = null;
   renderDetail();
+  openDetailOverlay();
+}
+
+function sessionsOnDate(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  return allSessions.filter((s) => s.when && sameDay(s.when, date));
+}
+
+// Clicking a day cell either jumps straight to its one session, or — when
+// there's more than one, or none — opens a day-level summary in the same
+// overlay instead of guessing which session the user meant.
+function selectDay(iso) {
+  const sessions = sessionsOnDate(iso);
+  if (sessions.length === 1) {
+    selectSession(sessions[0].id);
+    return;
+  }
+  selectedSessionId = null;
+  selectedDayIso = iso;
+  renderDayDetail(iso, sessions);
+  openDetailOverlay();
+}
+
+// Re-renders whichever view is currently showing in the overlay (a single
+// session or a day summary) after live data changes, instead of always
+// snapping back to the single-session view and losing a day summary.
+function refreshOverlayContent() {
+  if (selectedSessionId) renderDetail();
+  else if (selectedDayIso) renderDayDetail(selectedDayIso, sessionsOnDate(selectedDayIso));
+}
+
+function renderDayDetail(iso, sessions) {
+  const panel = document.getElementById('session-detail-body');
+  const away = MG.awayNamesOn(iso, allUnavailability);
+  panel.innerHTML = `
+    <div class="eyebrow">${MG.escapeHtml(formatDateStr(iso).toUpperCase())}</div>
+    ${away.length ? `<div class="mono" style="font-size:11px; color:#ff8a6a; margin-top:12px;">⚠ ${MG.escapeHtml(away.join(', '))} away that day</div>` : ''}
+    <div class="stack" style="margin-top:16px; gap:10px;">
+      ${sessions.length === 0
+        ? `<p style="color:var(--ink-dim); font-size:13px;">No sessions scheduled.</p>`
+        : sessions.map((s) => `
+            <a href="#" data-select="${s.id}" class="row panel chamfer" style="text-decoration:none; padding:12px 14px; justify-content:space-between;">
+              <div>
+                <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:14px; color:var(--ink-strong);">${MG.escapeHtml(s.gameTitle)}</div>
+                <div class="mono" style="font-size:10px; color:var(--ink-dim); margin-top:3px;">${MG.escapeHtml(s.when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }))}</div>
+              </div>
+              <span class="chip${s.status === 'accepted' ? ' chip-live' : ''}">${s.status === 'accepted' ? 'Accepted' : 'Proposed'}</span>
+            </a>`).join('')}
+    </div>
+  `;
+  panel.querySelectorAll('[data-select]').forEach((el) => {
+    el.onclick = (e) => { e.preventDefault(); selectSession(el.dataset.select); };
+  });
 }
 
 function renderDetail() {
-  const panel = document.getElementById('session-detail');
+  const panel = document.getElementById('session-detail-body');
   const s = allSessions.find((x) => x.id === selectedSessionId);
   if (!s) {
     panel.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">Select a session to see who's in.</p>`;
@@ -240,32 +312,70 @@ function formatRange(start, end) {
   return start === end ? formatDateStr(start) : `${formatDateStr(start)} – ${formatDateStr(end)}`;
 }
 
-// Who's Away — forward-looking only (hides ranges that have fully passed)
-// so it doesn't just accumulate every entry ever added.
+// Who's Away — scoped to the month currently on screen (not every entry
+// ever added) and grouped one row per person, so it stays a quick skim
+// instead of a long flat list. Click a person to see their full ranges.
 function renderAwayPanel() {
   const list = document.getElementById('away-list');
-  const todayIso = MG.toISODate(new Date());
-  const upcoming = allUnavailability
-    .filter((u) => u.end >= todayIso)
-    .sort((a, b) => a.start < b.start ? -1 : a.start > b.start ? 1 : 0);
+  const monthStartIso = MG.toISODate(new Date(monthCursor.getFullYear(), monthCursor.getMonth(), 1));
+  const monthEndIso = MG.toISODate(new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 0));
+  const inMonth = allUnavailability.filter((u) => u.start <= monthEndIso && u.end >= monthStartIso);
 
-  if (upcoming.length === 0) {
-    list.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">No one's marked away right now.</p>`;
+  if (inMonth.length === 0) {
+    list.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">No one's marked away this month.</p>`;
     return;
   }
-  list.innerHTML = upcoming.map((u) => {
-    const canRemove = u.uid === MG.user.uid || MG.isAdmin;
+
+  const byUser = new Map();
+  inMonth.forEach((u) => {
+    if (!byUser.has(u.uid)) byUser.set(u.uid, []);
+    byUser.get(u.uid).push(u);
+  });
+
+  list.innerHTML = [...byUser.entries()].map(([uid, entries]) => {
+    entries.sort((a, b) => a.start < b.start ? -1 : a.start > b.start ? 1 : 0);
+    const name = MG.resolveName(uid, entries[0].name);
+    const summary = entries.length === 1
+      ? formatRange(entries[0].start, entries[0].end) + (entries[0].note ? ' · ' + entries[0].note : '')
+      : `${entries.length} ranges this month`;
     return `
-    <div class="row" style="justify-content:space-between; align-items:flex-start;">
+    <button type="button" class="away-row" data-user-away="${uid}">
       <div>
-        <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:14px; color:var(--ink-strong);">${MG.escapeHtml(MG.resolveName(u.uid, u.name))}</div>
-        <div class="mono" style="font-size:10.5px; color:var(--ink-dim); margin-top:3px;">${MG.escapeHtml(formatRange(u.start, u.end).toUpperCase())}${u.note ? ' · ' + MG.escapeHtml(u.note) : ''}</div>
+        <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:14px; color:var(--ink-strong);">${MG.escapeHtml(name)}</div>
+        <div class="mono" style="font-size:10.5px; color:var(--ink-dim); margin-top:3px;">${MG.escapeHtml(summary.toUpperCase())}</div>
       </div>
-      ${canRemove ? `<button class="btn btn-ghost btn-sm" data-remove-away="${u.id}" type="button">Remove</button>` : ''}
-    </div>`;
+      <span class="away-chev mono" style="color:var(--ink-dim); font-size:14px;">&rsaquo;</span>
+    </button>`;
   }).join('<hr style="border:none; border-top:1px solid var(--line); margin:2px 0;">');
 
-  list.querySelectorAll('[data-remove-away]').forEach((btn) => {
+  list.querySelectorAll('[data-user-away]').forEach((btn) => {
+    const uid = btn.dataset.userAway;
+    btn.onclick = () => openAwayDetailModal(uid, byUser.get(uid));
+  });
+}
+
+function openAwayDetailModal(uid, entries) {
+  const sorted = [...entries].sort((a, b) => a.start < b.start ? -1 : a.start > b.start ? 1 : 0);
+  const html = `
+    <div class="eyebrow">Away</div>
+    <h2 style="font-size:22px; margin-top:10px;">${MG.escapeHtml(MG.resolveName(uid, sorted[0].name))}</h2>
+    <div class="stack" style="margin-top:20px; gap:10px;">
+      ${sorted.map((u) => `
+        <div class="row" style="justify-content:space-between; align-items:flex-start;">
+          <div>
+            <div class="mono" style="font-size:11px; color:var(--ink-strong);">${MG.escapeHtml(formatRange(u.start, u.end).toUpperCase())}</div>
+            ${u.note ? `<div class="mono" style="font-size:10.5px; color:var(--ink-dim); margin-top:3px;">${MG.escapeHtml(u.note)}</div>` : ''}
+          </div>
+          ${u.uid === MG.user.uid || MG.isAdmin ? `<button class="btn btn-ghost btn-sm" data-remove-away="${u.id}" type="button">Remove</button>` : ''}
+        </div>`).join('<hr style="border:none; border-top:1px solid var(--line); margin:2px 0;">')}
+    </div>
+    <div class="row" style="justify-content:flex-end; margin-top:18px;">
+      <button class="btn btn-ghost" type="button" id="away-detail-close">Close</button>
+    </div>
+  `;
+  const modal = MG.openModal(html);
+  modal.querySelector('#away-detail-close').onclick = () => MG.closeModal();
+  modal.querySelectorAll('[data-remove-away]').forEach((btn) => {
     btn.onclick = () => {
       btn.disabled = true;
       MG.deleteUnavailability(btn.dataset.removeAway).catch((e) => alert(e.message));
@@ -313,8 +423,10 @@ function openMarkUnavailableModal() {
 function renderCalendar() {
   document.getElementById('btn-propose-session').onclick = () => MG.openProposeSessionModal();
   document.getElementById('btn-mark-away').onclick = () => openMarkUnavailableModal();
-  document.getElementById('month-prev').onclick = () => { monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() - 1, 1); renderCalendarBody(); };
-  document.getElementById('month-next').onclick = () => { monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1); renderCalendarBody(); };
+  document.getElementById('btn-close-detail').onclick = () => closeDetailOverlay();
+  document.getElementById('cal-detail-backdrop').onclick = () => closeDetailOverlay();
+  document.getElementById('month-prev').onclick = () => { monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() - 1, 1); renderCalendarBody(); renderAwayPanel(); };
+  document.getElementById('month-next').onclick = () => { monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1); renderCalendarBody(); renderAwayPanel(); };
   document.getElementById('view-month').onclick = () => { viewMode = 'month'; document.getElementById('view-month').classList.add('active'); document.getElementById('view-list').classList.remove('active'); renderCalendarBody(); };
   document.getElementById('view-list').onclick = () => { viewMode = 'list'; document.getElementById('view-list').classList.add('active'); document.getElementById('view-month').classList.remove('active'); renderCalendarBody(); };
 
@@ -326,7 +438,7 @@ function renderCalendar() {
       })
       .filter((s) => s.status !== 'cancelled'); // cancelled sessions drop out of view, not deleted
     renderCalendarBody();
-    renderDetail();
+    refreshOverlayContent();
   }, (err) => {
     console.error(err);
     document.getElementById('cal-body').innerHTML = `<p class="mono" style="color:#ff8a6a; font-size:12px;">${MG.escapeHtml(err.message)}</p>`;
@@ -336,6 +448,7 @@ function renderCalendar() {
     allUnavailability = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     renderCalendarBody();
     renderAwayPanel();
+    refreshOverlayContent();
   }, (err) => {
     console.error(err);
     document.getElementById('away-list').innerHTML = `<p class="mono" style="color:#ff8a6a; font-size:12px;">${MG.escapeHtml(err.message)}</p>`;
