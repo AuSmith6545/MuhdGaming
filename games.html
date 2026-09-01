@@ -32,40 +32,41 @@
 <div id="mg-gate" class="loading">Loading…</div>
 
 <main id="mg-main" hidden>
-  <div class="wrap row" style="padding-top:40px; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:16px;">
+  <div class="wrap page-tabbar" style="margin-top:40px;">
+    <button class="page-tab" data-status="proposed" id="tab-proposed">Recommendations</button>
+    <button class="page-tab active" data-status="approved" id="tab-approved">Approved</button>
+    <button class="page-tab" data-status="archived" id="tab-archived">Archived</button>
+  </div>
+
+  <div class="wrap row" style="padding-top:28px; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:16px;">
     <div>
       <div id="games-eyebrow" class="eyebrow">Games // Approved Library</div>
       <h1 id="games-title" style="font-size:32px; margin-top:10px;">The lineup</h1>
-      <p id="games-sub" style="margin-top:10px; color:var(--ink-dim); max-width:60ch;">Every game the whole crew has voted in — each with its own milestones and to-do list.</p>
+      <p id="games-sub" style="margin-top:10px; color:var(--ink-dim); max-width:60ch;">Everything approved for the shared library — each with its own milestones and to-do list.</p>
     </div>
-    <button id="btn-propose-game" class="btn btn-primary">+ Propose a Game</button>
+    <button id="btn-propose-game" class="btn btn-primary" style="display:none;">+ Propose a Game</button>
+    <button id="btn-open-filters" class="btn btn-ghost" type="button" style="display:none;">Filters</button>
   </div>
 
-  <div class="wrap row mono" style="padding-top:26px; font-size:11px; color:var(--ink-dim); letter-spacing:.05em; gap:20px; flex-wrap:wrap;">
-    <span>SHOW:</span>
-    <button class="toggle" data-status="proposed" id="tab-proposed">Recommendations</button>
-    <button class="toggle active" data-status="approved" id="tab-approved">Approved</button>
-    <button class="toggle" data-status="archived" id="tab-archived">Archived</button>
-  </div>
-
-  <div id="sort-row" class="wrap row mono" style="padding-top:20px; font-size:11px; color:var(--ink-dim); letter-spacing:.05em; gap:20px; display:none;">
+  <div id="sort-row" class="wrap row mono" style="padding-top:22px; font-size:11px; color:var(--ink-dim); letter-spacing:.05em; gap:20px; display:none;">
     <span>SORT:</span>
     <button class="toggle active" data-sort="newest" id="sort-newest">Newest</button>
     <button class="toggle" data-sort="votes" id="sort-votes">Most Votes</button>
   </div>
 
-  <div id="search-facets-wrap">
-    <div class="wrap" style="padding-top:18px; max-width:320px;">
-      <div class="field">
-        <label>Search</label>
-        <input id="games-search" type="text" placeholder="Search by title…">
-      </div>
-    </div>
-    <div id="games-facets" class="wrap stack" style="padding-top:14px; gap:10px;"></div>
-  </div>
-
   <div id="games-grid" class="wrap grid-3" style="padding:22px 40px 60px;"></div>
 </main>
+
+<div id="filter-drawer-backdrop" class="side-drawer-backdrop"></div>
+<div id="filter-drawer" class="side-drawer">
+  <button id="btn-close-filters" class="drawer-close" type="button" aria-label="Close">&times;</button>
+  <div class="eyebrow">Filter</div>
+  <div class="field" style="margin-top:16px;">
+    <label>Search</label>
+    <input id="games-search" type="text" placeholder="Search by title…">
+  </div>
+  <div id="games-facets" class="stack" style="margin-top:18px; gap:14px;"></div>
+</div>
 
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
@@ -74,15 +75,15 @@
 <script>
 const TAB_COPY = {
   proposed: {
-    eyebrow: 'Games // Up for a Vote',
-    title: 'Cast your vote',
+    eyebrow: 'Games // Recommendations',
+    title: 'Up for a vote',
     sub: "Games someone in the crew wants to play — vote yes or no, and a unanimous yes moves it straight into the library.",
     empty: 'No recommendations yet — be the first to propose one.',
   },
   approved: {
     eyebrow: 'Games // Approved Library',
     title: 'The lineup',
-    sub: "Every game the whole crew has voted in — each with its own milestones and to-do list.",
+    sub: "Everything approved for the shared library — each with its own milestones and to-do list.",
     empty: 'No games approved yet — get one through a vote first.',
   },
   archived: {
@@ -110,6 +111,7 @@ function resetFilters() {
   if (search) search.value = '';
   document.getElementById('sort-newest').classList.add('active');
   document.getElementById('sort-votes').classList.remove('active');
+  updateFilterButtonLabel();
 }
 
 function getFilteredGames() {
@@ -152,12 +154,32 @@ function renderFacets() {
       set.has(val) ? set.delete(val) : set.add(val);
       renderFacets();
       renderGrid();
+      updateFilterButtonLabel();
     };
   });
   const clearBtn = document.getElementById('btn-clear-filters');
   if (clearBtn) {
-    clearBtn.onclick = () => { resetFilters(); renderFacets(); renderGrid(); };
+    clearBtn.onclick = () => { resetFilters(); renderFacets(); renderGrid(); updateFilterButtonLabel(); };
   }
+  updateFilterButtonLabel();
+}
+
+// Filter drawer (Approved/Archived tabs) — Search + Platform/Genre chips
+// live off-screen behind one "Filters" button instead of sitting inline
+// on the page, so the page itself doesn't fill up with facet chips.
+function updateFilterButtonLabel() {
+  const btn = document.getElementById('btn-open-filters');
+  if (!btn) return;
+  const count = (searchTerm.trim() ? 1 : 0) + activePlatforms.size + activeGenres.size;
+  btn.textContent = count ? `Filters (${count})` : 'Filters';
+}
+function openFilterDrawer() {
+  document.getElementById('filter-drawer').classList.add('open');
+  document.getElementById('filter-drawer-backdrop').classList.add('open');
+}
+function closeFilterDrawer() {
+  document.getElementById('filter-drawer').classList.remove('open');
+  document.getElementById('filter-drawer-backdrop').classList.remove('open');
 }
 
 // Recommendation card (Recommendations tab) — same layout/fields as the
@@ -322,11 +344,13 @@ function renderGrid() {
 function renderGames(status) {
   currentStatus = status;
   resetFilters();
+  closeFilterDrawer(); // no longer relevant once we've left Approved/Archived
   document.getElementById('tab-proposed').classList.toggle('active', status === 'proposed');
   document.getElementById('tab-approved').classList.toggle('active', status === 'approved');
   document.getElementById('tab-archived').classList.toggle('active', status === 'archived');
   document.getElementById('sort-row').style.display = status === 'proposed' ? '' : 'none';
-  document.getElementById('search-facets-wrap').style.display = status === 'proposed' ? 'none' : '';
+  document.getElementById('btn-propose-game').style.display = status === 'proposed' ? '' : 'none';
+  document.getElementById('btn-open-filters').style.display = status === 'proposed' ? 'none' : '';
 
   const copy = TAB_COPY[status];
   document.getElementById('games-eyebrow').textContent = copy.eyebrow;
@@ -353,7 +377,10 @@ MG.ready('games', () => {
   document.getElementById('tab-proposed').onclick = () => renderGames('proposed');
   document.getElementById('tab-approved').onclick = () => renderGames('approved');
   document.getElementById('tab-archived').onclick = () => renderGames('archived');
-  document.getElementById('games-search').oninput = (e) => { searchTerm = e.target.value; renderGrid(); };
+  document.getElementById('games-search').oninput = (e) => { searchTerm = e.target.value; renderGrid(); updateFilterButtonLabel(); };
+  document.getElementById('btn-open-filters').onclick = () => openFilterDrawer();
+  document.getElementById('btn-close-filters').onclick = () => closeFilterDrawer();
+  document.getElementById('filter-drawer-backdrop').onclick = () => closeFilterDrawer();
   document.getElementById('sort-newest').onclick = () => setSort('newest');
   document.getElementById('sort-votes').onclick = () => setSort('votes');
 

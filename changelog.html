@@ -41,6 +41,12 @@
   <div id="changelog-list" class="wrap" style="padding:28px 40px 60px; max-width:760px;"></div>
 </main>
 
+<div id="changelog-drawer-backdrop" class="side-drawer-backdrop"></div>
+<div id="changelog-drawer" class="side-drawer">
+  <button id="btn-close-changelog-detail" class="drawer-close" type="button" aria-label="Close">&times;</button>
+  <div id="changelog-drawer-body"></div>
+</div>
+
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
@@ -52,6 +58,34 @@ function formatEntryDate(dateStr) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// Bulleted <ul> when there's more than one detail; a single detail reads
+// fine as a plain sentence instead of a one-item list.
+function detailsHtml(details) {
+  if (!details || details.length === 0) return '';
+  return `<ul class="changelog-list">${details.map((d) => `<li>${MG.escapeHtml(d)}</li>`).join('')}</ul>`;
+}
+
+function openChangelogDetail(entry) {
+  document.getElementById('changelog-drawer-body').innerHTML = `
+    <div class="eyebrow">${MG.escapeHtml(formatEntryDate(entry.date)).toUpperCase()}</div>
+    <h2 style="font-size:22px; margin-top:10px;">${MG.escapeHtml(entry.title)}</h2>
+    <p style="margin-top:14px; color:var(--ink);">${MG.escapeHtml(entry.summary)}</p>
+    ${detailsHtml(entry.details)}
+  `;
+  document.getElementById('changelog-drawer').classList.add('open');
+  document.getElementById('changelog-drawer-backdrop').classList.add('open');
+}
+function closeChangelogDetail() {
+  document.getElementById('changelog-drawer').classList.remove('open');
+  document.getElementById('changelog-drawer-backdrop').classList.remove('open');
+}
+
+// Each entry renders two ways at once, and CSS (not JS) decides which
+// shows: .changelog-full is the desktop view (summary + the full bulleted
+// details inline); .changelog-condensed is mobile's — just the summary,
+// so every card lands at roughly the same height, with a "View Details"
+// button (only when there's more than the summary to show) opening the
+// same details in a slide-out panel instead of growing the card.
 function renderChangelog() {
   const list = document.getElementById('changelog-list');
   const entries = window.MG_CHANGELOG || [];
@@ -68,13 +102,30 @@ function renderChangelog() {
       <div class="panel chamfer" style="padding:18px; margin-bottom:22px; flex:1;">
         <div class="mono" style="font-size:10.5px; color:var(--ink-dim);">${MG.escapeHtml(formatEntryDate(e.date)).toUpperCase()}</div>
         <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:19px; color:var(--ink-strong); margin-top:6px;">${MG.escapeHtml(e.title)}</div>
-        <p style="margin-top:8px; color:var(--ink);">${MG.escapeHtml(e.body)}</p>
+
+        <div class="changelog-full">
+          <p style="margin-top:8px; color:var(--ink);">${MG.escapeHtml(e.summary)}</p>
+          ${detailsHtml(e.details)}
+        </div>
+
+        <div class="changelog-condensed">
+          <p style="margin-top:8px; color:var(--ink);">${MG.escapeHtml(e.summary)}</p>
+          ${e.details && e.details.length > 0 ? `<button class="btn btn-ghost btn-sm" data-changelog-detail="${i}" type="button" style="margin-top:10px;">View Details</button>` : ''}
+        </div>
       </div>
     </div>
   `).join('');
+
+  list.querySelectorAll('[data-changelog-detail]').forEach((btn) => {
+    btn.onclick = () => openChangelogDetail(entries[+btn.dataset.changelogDetail]);
+  });
 }
 
-MG.ready('changelog', renderChangelog);
+MG.ready('changelog', () => {
+  renderChangelog();
+  document.getElementById('btn-close-changelog-detail').onclick = () => closeChangelogDetail();
+  document.getElementById('changelog-drawer-backdrop').onclick = () => closeChangelogDetail();
+});
 </script>
 </body>
 </html>

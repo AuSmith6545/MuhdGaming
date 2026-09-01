@@ -191,6 +191,20 @@ button{ font: inherit; }
 .todo-box{ width:16px; height:16px; border:2px solid var(--line-bright); flex-shrink:0; cursor:pointer; background:transparent; padding:0; }
 .todo-box.done{ background:linear-gradient(155deg, color-mix(in srgb, var(--accent) 85%, #fff 15%), var(--accent)); border-color:var(--accent); }
 
+/* Changelog entries — bulleted detail list, plus the desktop/mobile split:
+   .changelog-full (summary + full bullet list) shows by default; mobile
+   swaps to .changelog-condensed (summary only, with a "View Details"
+   button when there's more to show) so every card lands at roughly the
+   same height instead of the list varying wildly with entry length. */
+.changelog-list{ margin-top:8px; padding-left:18px; color:var(--ink); }
+.changelog-list li{ margin-top:6px; line-height:1.5; }
+.changelog-list li:first-child{ margin-top:0; }
+.changelog-condensed{ display:none; }
+@media (max-width:640px){
+  .changelog-full{ display:none; }
+  .changelog-condensed{ display:block; }
+}
+
 /* calendar grid */
 .cal-layout{ grid-template-columns:2fr 1fr; }
 .cal-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:1px; background:var(--line); border:1px solid var(--line); }
@@ -259,3 +273,36 @@ button{ font: inherit; }
 .menu-panel button{ text-align:left; background:transparent; border:none; color:var(--ink); font-family:'Titillium Web',sans-serif; font-size:13px; padding:9px 10px; cursor:pointer; white-space:nowrap; }
 .menu-panel button:hover{ background:var(--panel-2); color:var(--ink-strong); }
 .menu-panel button.danger:hover{ color:#ff8a6a; }
+
+/* Top-level page tabs (e.g. Games: Recommendations/Approved/Archived) —
+   styled like the main nav's underline-tabs so they read as a level of
+   navigation above the page content, not a filter control. overflow-x
+   with nowrap (never wrap) is the safety net on narrow screens: a tab bar
+   that wrapped to a second line would fight with the "higher level, not
+   part of the content flow" feel this is going for. */
+.page-tabbar{ display:flex; gap:28px; border-bottom:1px solid var(--line); overflow-x:auto; white-space:nowrap; }
+.page-tab{ font-family:'Rajdhani',sans-serif; font-weight:600; font-size:15px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-dim); background:transparent; border:none; padding:14px 2px; margin-bottom:-1px; cursor:pointer; border-bottom:2px solid transparent; flex-shrink:0; }
+.page-tab:hover{ color:var(--ink-strong); }
+.page-tab.active{ color:#fff; border-bottom-color:#fff; text-shadow:0 0 14px rgba(255,255,255,.5); }
+
+/* Generic right-side slide-out drawer (currently: the Games filter panel)
+   — a fixed overlay + backdrop, distinct from the calendar page's own
+   session-detail overlay (which is deliberately mobile-only) since this
+   one needs to work at every screen size. */
+.side-drawer-backdrop{ display:none; position:fixed; inset:0; background:rgba(4,5,6,.65); z-index:55; }
+.side-drawer-backdrop.open{ display:block; }
+.side-drawer{
+  position:fixed; top:0; right:0; bottom:0; width:min(90vw,360px); max-width:360px;
+  background:linear-gradient(155deg, #161c22 0%, #0f1317 100%); border-left:1px solid var(--line-bright);
+  z-index:60; overflow-y:auto; padding:56px 22px 22px;
+  transform:translateX(100%); transition:transform .28s ease;
+  box-shadow:-10px 0 34px -12px rgba(0,0,0,.7);
+}
+.side-drawer.open{ transform:translateX(0); }
+.drawer-close{
+  display:flex; align-items:center; justify-content:center;
+  position:absolute; top:14px; right:14px; width:30px; height:30px;
+  border:1px solid var(--line-bright); background:transparent; color:var(--ink-strong);
+  font-size:18px; line-height:1; cursor:pointer;
+}
+.drawer-close:hover{ border-color:#fff; color:#fff; }
