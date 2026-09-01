@@ -248,8 +248,8 @@ MG.fetchSteamNews = async function (appId) {
 
 const NAV_ITEMS = [
   ['dashboard', 'Dashboard', 'index.html'],
-  ['recommendations', 'Recommendations', 'recommendations.html'],
   ['games', 'Games', 'games.html'],
+  ['watchlist', 'Watchlist', 'watchlist.html'],
   ['calendar', 'Calendar', 'calendar.html'],
   ['changelog', 'Changelog', 'changelog.html'],
 ];
@@ -456,7 +456,7 @@ MG.ready = function (activePage, onReady) {
   });
 };
 
-/* ---------- writes: games / recommendations ---------- */
+/* ---------- writes: games / watchlist / recommendations ---------- */
 
 MG.proposeGame = async function (fields) {
   const uid = MG.user.uid;
@@ -480,6 +480,60 @@ MG.proposeGame = async function (fields) {
   };
   const ref = await MG.db.collection('games').add(doc);
   return ref.id;
+};
+
+// Adds a game straight to the Watchlist — same shape/fields as proposeGame,
+// just parked as "on our radar" instead of immediately opening a vote.
+// MG.promoteToVote later reuses this same doc, so nothing has to be
+// re-entered when it's ready to actually go up for a vote.
+MG.addToWatchlist = async function (fields) {
+  const uid = MG.user.uid;
+  const doc = {
+    title: fields.title,
+    platforms: fields.platforms || [],
+    genres: fields.genres || [],
+    coopType: fields.coopType || '',
+    minPlayers: fields.minPlayers || 2,
+    maxPlayers: fields.maxPlayers || 4,
+    description: fields.description || '',
+    storeUrl: fields.storeUrl || '',
+    steamAppId: fields.steamAppId || null,
+    image: fields.image || null,
+    price: fields.price || '',
+    releaseDate: fields.releaseDate || '',
+    status: 'watchlist',
+    proposedBy: { uid, name: MG.user.displayName },
+    proposedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    votes: {},
+  };
+  const ref = await MG.db.collection('games').add(doc);
+  return ref.id;
+};
+
+// Promotes a Watchlist entry into a fresh vote — open to any friend (not
+// just the one who added it), the same as proposing a brand-new game is:
+// it's a forward, additive action, not undoing someone else's work.
+MG.promoteToVote = async function (gameId) {
+  await MG.db.collection('games').doc(gameId).update({
+    status: 'proposed',
+    votes: {},
+    proposedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    lastActivityAt: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+};
+
+// Shelves an in-progress vote back to the Watchlist — for an idea that
+// isn't gaining traction, or one that finished a full vote without
+// reaching unanimous yes. Unlike promoting, this DOES undo an active
+// proposal, so firestore.rules restricts it to the proposer or an admin,
+// same as archiving/demoting a game. Clears votes so a future re-promote
+// starts clean.
+MG.demoteToWatchlist = async function (gameId) {
+  await MG.db.collection('games').doc(gameId).update({
+    status: 'watchlist',
+    votes: {},
+    lastActivityAt: firebase.firestore.FieldValue.serverTimestamp(),
+  });
 };
 
 // Edits an existing game's details in place — same fields as proposeGame,
@@ -782,7 +836,44 @@ MG.declineRequest = async function (uid) {
   await MG.db.collection('joinRequests').doc(uid).delete();
 };
 
-/* ---------- shared modals (used from Dashboard, Recommendations, Calendar) ---------- */
+// Shared "⋯" overflow menu — used on condensed cards (Vote strip,
+// Watchlist) and the game detail banner to keep secondary actions from
+// crowding out the primary one(s). Call after rendering menu markup
+// (a `.menu` wrapping a `[data-menu-btn]` button + a `.menu-panel`); safe
+// to call repeatedly on the same DOM, each button is only wired once.
+//
+// The panel is positioned via fixed coordinates computed from the
+// button's own rect, not CSS position:absolute — the Vote strip's cards
+// sit in a horizontally scrolling row, and overflow-x:auto on that
+// ancestor would silently clip an absolutely-positioned panel (CSS forces
+// overflow-y to clip too whenever overflow-x isn't visible).
+MG.closeAllMenus = function () {
+  document.querySelectorAll('.menu-panel.open').forEach((p) => p.classList.remove('open'));
+};
+MG.initMenus = function (root) {
+  (root || document).querySelectorAll('[data-menu-btn]').forEach((btn) => {
+    if (btn.dataset.menuBound) return;
+    btn.dataset.menuBound = '1';
+    const panel = btn.nextElementSibling;
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const willOpen = !panel.classList.contains('open');
+      MG.closeAllMenus();
+      if (willOpen) {
+        const rect = btn.getBoundingClientRect();
+        panel.style.top = `${rect.bottom + 6}px`;
+        panel.style.right = `${window.innerWidth - rect.right}px`;
+        panel.classList.add('open');
+        // Scrolling anything (the page, or the Vote strip itself)
+        // invalidates that fixed position rather than tracking it live.
+        window.addEventListener('scroll', MG.closeAllMenus, { capture: true, once: true });
+      }
+    };
+  });
+};
+document.addEventListener('click', MG.closeAllMenus);
+
+/* ---------- shared modals (used from Dashboard, Games, Watchlist, Calendar) ---------- */
 
 MG.closeModal = function () {
   const el = document.getElementById('mg-modal-backdrop');
@@ -813,7 +904,13 @@ MG.openModal = function (innerHtml) {
 // something there to work from — but its Steam field still gets a real
 // "Look Up" button, so re-pointing it at a different App ID later is just
 // as prominent as the first time.
-MG.openGameFormModal = function (existing) {
+// opts.targetStatus ('proposed' | 'watchlist') only matters for a fresh add
+// (existing === null) — it decides whether this lands straight in a vote
+// or on the Watchlist. Editing an existing game never touches status.
+MG.openGameFormModal = function (existing, opts) {
+  const targetStatus = (opts && opts.targetStatus) || 'proposed';
+  const addLabel = targetStatus === 'watchlist' ? 'Add to Watchlist' : 'Propose a Game';
+
   if (existing) {
     renderDetailsStep(existing, null);
   } else {
@@ -822,7 +919,7 @@ MG.openGameFormModal = function (existing) {
 
   function renderModeChoice() {
     const html = `
-      <div class="eyebrow">Propose a Game</div>
+      <div class="eyebrow">${addLabel}</div>
       <h2 style="font-size:22px; margin-top:10px;">How do you want to add it?</h2>
       <div class="field" style="margin-top:20px;">
         <label>Steam store link or App ID</label>
@@ -883,8 +980,8 @@ MG.openGameFormModal = function (existing) {
       : '';
 
     const html = `
-      <div class="eyebrow">${isEdit ? 'Edit Game' : 'Propose a Game'}</div>
-      <h2 style="font-size:22px; margin-top:10px;">${isEdit ? 'Update the details' : 'Add a recommendation'}</h2>
+      <div class="eyebrow">${isEdit ? 'Edit Game' : addLabel}</div>
+      <h2 style="font-size:22px; margin-top:10px;">${isEdit ? 'Update the details' : (targetStatus === 'watchlist' ? 'Add to the watchlist' : 'Add a recommendation')}</h2>
       <div class="stack" style="margin-top:20px;">
         <div class="field">
           <label>Steam store link or App ID (optional)</label>
@@ -910,7 +1007,7 @@ MG.openGameFormModal = function (existing) {
           ${isEdit ? '<span></span>' : '<button class="btn btn-ghost btn-sm" type="button" id="pg-back">← Start over</button>'}
           <div class="row">
             <button class="btn btn-ghost" type="button" id="pg-cancel">Cancel</button>
-            <button class="btn btn-primary" type="button" id="pg-submit">${isEdit ? 'Save Changes' : 'Add Recommendation'}</button>
+            <button class="btn btn-primary" type="button" id="pg-submit">${isEdit ? 'Save Changes' : addLabel}</button>
           </div>
         </div>
         <p id="pg-error" class="mono" style="color:#ff8a6a; font-size:12px;"></p>
@@ -975,7 +1072,9 @@ MG.openGameFormModal = function (existing) {
         releaseDate: modal.querySelector('#pg-release').value.trim(),
       };
       try {
-        if (isEdit) await MG.updateGame(existingGame.id, fields); else await MG.proposeGame(fields);
+        if (isEdit) await MG.updateGame(existingGame.id, fields);
+        else if (targetStatus === 'watchlist') await MG.addToWatchlist(fields);
+        else await MG.proposeGame(fields);
         MG.closeModal();
       } catch (err) {
         errorEl.textContent = err.message;
@@ -986,6 +1085,7 @@ MG.openGameFormModal = function (existing) {
 };
 
 MG.openProposeGameModal = function () { MG.openGameFormModal(null); };
+MG.openAddToWatchlistModal = function () { MG.openGameFormModal(null, { targetStatus: 'watchlist' }); };
 
 MG.openProposeSessionModal = async function () {
   let games = [];

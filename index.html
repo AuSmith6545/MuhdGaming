@@ -218,7 +218,7 @@ function renderDashboard() {
       el.innerHTML = ranked.map((g) => {
         const segs = MG.segBarHtml(g.votes, MG.friendCount);
         return `
-          <a href="recommendations.html" style="text-decoration:none; display:block;">
+          <a href="games.html" style="text-decoration:none; display:block;">
             <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:17px; color:var(--ink-strong);">${MG.escapeHtml(g.title)}</div>
             <div class="mono" style="font-size:11px; color:var(--ink-dim); margin-top:5px;">${g.voteCount} OF ${MG.friendCount} FRIENDS</div>
             <div class="seg-bar" style="margin-top:8px;">${segs}</div>

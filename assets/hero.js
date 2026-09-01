@@ -14,7 +14,7 @@ window.MG_HERO_SLIDES = [
     title: 'MuhdGaming',
     subtitle: 'Propose games, vote as a crew, and lock in session times — all in one place.',
     image: null,
-    cta: { label: 'Propose a Game', href: 'recommendations.html' },
+    cta: { label: 'Propose a Game', href: 'games.html' },
   },
   {
     title: 'This Week',

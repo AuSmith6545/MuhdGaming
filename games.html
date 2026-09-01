@@ -32,13 +32,21 @@
 <div id="mg-gate" class="loading">Loading…</div>
 
 <main id="mg-main" hidden>
-  <div class="wrap" style="padding-top:40px;">
-    <div id="games-eyebrow" class="eyebrow">Games // Approved Library</div>
-    <h1 id="games-title" style="font-size:32px; margin-top:10px;">The lineup</h1>
-    <p id="games-sub" style="margin-top:10px; color:var(--ink-dim); max-width:60ch;">Every game the whole crew has voted in — each with its own milestones and to-do list.</p>
+  <div class="wrap row" style="padding-top:40px; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:16px;">
+    <div>
+      <div id="games-eyebrow" class="eyebrow">Games // Approved Library</div>
+      <h1 id="games-title" style="font-size:32px; margin-top:10px;">The lineup</h1>
+      <p id="games-sub" style="margin-top:10px; color:var(--ink-dim); max-width:60ch;">Every game the whole crew has voted in — each with its own milestones and to-do list.</p>
+    </div>
+    <button id="btn-propose-game" class="btn btn-primary">+ Propose a Game</button>
   </div>
 
-  <div class="wrap row mono" style="padding-top:22px; font-size:11px; color:var(--ink-dim); letter-spacing:.05em; gap:20px;">
+  <div id="vote-strip-section" class="wrap" style="padding-top:26px;">
+    <div class="eyebrow">Up for a Vote</div>
+    <div id="vote-strip" class="vote-strip" style="margin-top:14px;"></div>
+  </div>
+
+  <div class="wrap row mono" style="padding-top:26px; font-size:11px; color:var(--ink-dim); letter-spacing:.05em; gap:20px;">
     <span>SHOW:</span>
     <button class="toggle active" data-status="approved" id="tab-approved">Approved</button>
     <button class="toggle" data-status="archived" id="tab-archived">Archived</button>
@@ -66,19 +74,25 @@ const TAB_COPY = {
     eyebrow: 'Games // Approved Library',
     title: 'The lineup',
     sub: "Every game the whole crew has voted in — each with its own milestones and to-do list.",
-    empty: 'No games approved yet — get one through Recommendations first.',
+    empty: 'No games approved yet — get one through a vote above first.',
   },
   archived: {
     eyebrow: 'Games // Archived',
     title: 'Shelved for now',
-    sub: "Games the crew has already played and set aside — if one gets a big update or expansion, check it and move it back to Recommendations to bring it up for a vote again.",
+    sub: "Games the crew has already played and set aside — if one gets a big update or expansion, use Edit on its page and send it back up for a vote to bring it back.",
     empty: "Nothing archived yet.",
   },
 };
 
+// A freshly-proposed vote card gets a pulsing accent border for this long,
+// so a new arrival stands out from recs that have been sitting a while —
+// time-based on purpose, so it never needs per-person read-tracking.
+const NEW_VOTE_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
+
 let unsubscribeGames = null;
 let currentStatus = 'approved';
 let currentGames = [];        // unfiltered, from the live snapshot
+let voteGames = [];            // status === 'proposed', drives the vote strip
 let searchTerm = '';
 let activePlatforms = new Set();
 let activeGenres = new Set();
@@ -180,6 +194,108 @@ function renderGrid() {
   });
 }
 
+// Vote strip — condensed, horizontally-scrolling cards for every game
+// currently up for a vote, sitting above the Approved/Archived tabs. A
+// card whose full crew has voted but didn't reach unanimous yes swaps its
+// Yes/No buttons for Remove / Move to Watchlist, since voting on it is
+// done — the only way back into a vote from there is a fresh promote from
+// the Watchlist, same restart pattern as demoting an approved game.
+function renderVoteCard(g) {
+  const { yes, no } = MG.voteCounts(g.votes);
+  const resolved = MG.friendCount > 0 && (yes + no) >= MG.friendCount;
+  const myVote = g.votes && g.votes[MG.user.uid];
+  const isYes = myVote === true;
+  const isNo = myVote === false;
+  const segs = MG.segBarHtml(g.votes, MG.friendCount);
+  const proposedAt = MG.toDate(g.proposedAt);
+  const isNew = proposedAt && (Date.now() - proposedAt.getTime()) < NEW_VOTE_WINDOW_MS;
+  const canManage = (g.proposedBy && g.proposedBy.uid) === MG.user.uid || MG.isAdmin;
+
+  // Remove / Move to Watchlist here are the same proposer-or-admin-only
+  // transitions as the overflow menu's Withdraw/Move to Watchlist — a
+  // friend who isn't either just sees the outcome, not buttons that would
+  // fail on click.
+  const actionsHtml = resolved
+    ? `
+      <div class="mono" style="font-size:9.5px; color:#ff8a6a; margin-top:8px;">NOT APPROVED — NO MAJORITY</div>
+      ${canManage ? `
+      <div class="row" style="gap:6px; margin-top:8px;">
+        <button class="btn btn-ghost btn-sm" data-withdraw="${g.id}" type="button">Remove</button>
+        <button class="btn btn-ghost btn-sm" data-to-watchlist="${g.id}" type="button">Move to Watchlist</button>
+      </div>` : ''}`
+    : `
+      <div class="row" style="gap:6px; margin-top:8px;">
+        <button class="rsvp-btn${isYes ? ' active-yes' : ''}" data-vote="${g.id}" data-choice="yes">Yes</button>
+        <button class="rsvp-btn${isNo ? ' active-no' : ''}" data-vote="${g.id}" data-choice="no">No</button>
+      </div>`;
+
+  const menuItemsHtml = resolved
+    ? `<button type="button" data-edit="${g.id}">Edit</button>`
+    : `
+      <button type="button" data-edit="${g.id}">Edit</button>
+      ${canManage ? `<button type="button" data-to-watchlist="${g.id}">Move to Watchlist</button>` : ''}
+      ${canManage ? `<button type="button" class="danger" data-withdraw="${g.id}">Withdraw</button>` : ''}
+    `;
+
+  return `
+    <div class="panel chamfer-sm vote-card${isNew ? ' panel-alert' : ''}">
+      <div class="row" style="gap:12px; align-items:flex-start;">
+        <div class="cover" style="background:${MG.coverGradient(g.title)};">${MG.coverArtHtml(g.title, g.image)}</div>
+        <div style="flex:1; min-width:0;">
+          <div class="row" style="justify-content:space-between; align-items:flex-start; gap:6px;">
+            <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:15px; color:var(--ink-strong); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${MG.escapeHtml(g.title)}</div>
+            <div class="menu">
+              <button type="button" class="menu-btn" data-menu-btn aria-label="More actions">&#8942;</button>
+              <div class="menu-panel">${menuItemsHtml}</div>
+            </div>
+          </div>
+          <div class="seg-bar" style="margin-top:8px;">${segs}</div>
+          <div class="mono" style="font-size:9.5px; color:var(--ink-dim); margin-top:6px;">${yes} YES${no ? ` · ${no} NO` : ''} OF ${MG.friendCount}</div>
+          ${actionsHtml}
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderVoteStrip() {
+  const section = document.getElementById('vote-strip-section');
+  const strip = document.getElementById('vote-strip');
+  if (voteGames.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+  const sorted = [...voteGames].sort((a, b) => (MG.toDate(b.proposedAt) || 0) - (MG.toDate(a.proposedAt) || 0));
+  strip.innerHTML = sorted.map(renderVoteCard).join('');
+
+  strip.querySelectorAll('[data-vote]').forEach((btn) => {
+    btn.onclick = () => {
+      btn.disabled = true;
+      MG.setVote(btn.dataset.vote, btn.dataset.choice === 'yes').catch((e) => alert(e.message));
+    };
+  });
+  strip.querySelectorAll('[data-edit]').forEach((btn) => {
+    btn.onclick = () => {
+      const game = voteGames.find((g) => g.id === btn.dataset.edit);
+      if (game) MG.openGameFormModal(game);
+    };
+  });
+  strip.querySelectorAll('[data-to-watchlist]').forEach((btn) => {
+    btn.onclick = () => {
+      btn.disabled = true;
+      MG.demoteToWatchlist(btn.dataset.toWatchlist).catch((e) => alert(e.message));
+    };
+  });
+  strip.querySelectorAll('[data-withdraw]').forEach((btn) => {
+    btn.onclick = () => {
+      if (!confirm("Remove this from voting? This can't be undone.")) return;
+      btn.disabled = true;
+      MG.withdrawGame(btn.dataset.withdraw).catch((e) => alert(e.message));
+    };
+  });
+  MG.initMenus(strip);
+}
+
 function renderGames(status) {
   currentStatus = status;
   resetFilters();
@@ -205,10 +321,20 @@ function renderGames(status) {
 }
 
 MG.ready('games', () => {
+  document.getElementById('btn-propose-game').onclick = () => MG.openProposeGameModal();
   document.getElementById('tab-approved').onclick = () => renderGames('approved');
   document.getElementById('tab-archived').onclick = () => renderGames('archived');
   document.getElementById('games-search').oninput = (e) => { searchTerm = e.target.value; renderGrid(); };
   renderGames('approved');
+
+  MG.db.collection('games').where('status', '==', 'proposed').onSnapshot((snap) => {
+    voteGames = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    renderVoteStrip();
+  }, (err) => {
+    console.error(err);
+    document.getElementById('vote-strip').innerHTML =
+      `<p class="mono" style="color:#ff8a6a; font-size:12px;">${MG.escapeHtml(err.message)}</p>`;
+  });
 });
 </script>
 </body>

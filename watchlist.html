@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6a1a">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-640x1136.png" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-750x1334.png" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1242x2208.png" media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1125x2436.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-828x1792.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1242x2688.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1170x2532.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1284x2778.png" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1179x2556.png" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1290x2796.png" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1206x2622.png" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1320x2868.png" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MuhdGaming">
+<title>MuhdGaming — Watchlist</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Titillium+Web:wght@400;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<div id="mg-nav"></div>
+<div id="mg-gate" class="loading">Loading…</div>
+
+<main id="mg-main" hidden>
+  <div class="wrap row" style="padding-top:40px; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:16px;">
+    <div>
+      <div class="eyebrow">Watchlist // On Our Radar</div>
+      <h1 style="font-size:32px; margin-top:10px;">Keep an eye on these</h1>
+      <p style="margin-top:10px; color:var(--ink-dim); max-width:60ch;">Things worth remembering that aren't ready for a vote yet — no pressure, no tally, just a shared list. Move one to a vote whenever the crew's ready.</p>
+    </div>
+    <button id="btn-add-watchlist" class="btn btn-primary">+ Add to Watchlist</button>
+  </div>
+
+  <div id="watchlist-grid" class="wrap grid-3" style="padding:22px 40px 60px;"></div>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="assets/app.js"></script>
+<script>
+let currentItems = [];
+
+function renderCard(g) {
+  const tags = (g.genres || []).slice(0, 2).map((t) => `<span class="chip">${MG.escapeHtml(t)}</span>`).join('');
+  const facts = [g.price, g.releaseDate].filter(Boolean).map((t) => `<span class="chip chip-accent">${MG.escapeHtml(t)}</span>`).join('');
+  const coverInner = `
+    ${MG.coverArtHtml(g.title, g.image)}
+    <span class="chip" style="position:relative;">${MG.escapeHtml((g.platforms || [])[0] || 'PC')}</span>
+  `;
+  // Same gradient/glyph placeholder either way — only whether it's a
+  // clickable link to the Steam page depends on having a (safe) storeUrl.
+  const safeStoreUrl = MG.safeUrl(g.storeUrl);
+  const coverHtml = safeStoreUrl
+    ? `<a class="cover" href="${MG.escapeHtml(safeStoreUrl)}" target="_blank" rel="noopener noreferrer" title="View ${MG.escapeHtml(g.title)} on Steam" style="background:${MG.coverGradient(g.title)}; text-decoration:none;">${coverInner}</a>`
+    : `<div class="cover" style="background:${MG.coverGradient(g.title)};">${coverInner}</div>`;
+  const canManage = (g.proposedBy && g.proposedBy.uid) === MG.user.uid || MG.isAdmin;
+
+  return `
+    <div class="panel chamfer" style="display:flex; flex-direction:column;">
+      ${coverHtml}
+      <div style="padding:18px; display:flex; flex-direction:column; gap:14px; flex:1;">
+        <div class="row" style="justify-content:space-between; align-items:flex-start; gap:8px;">
+          <div>
+            <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:19px; color:var(--ink-strong);">${MG.escapeHtml(g.title)}</div>
+            <div class="row" style="gap:6px; margin-top:8px; flex-wrap:wrap;">${tags}${facts}</div>
+          </div>
+          <div class="menu">
+            <button type="button" class="menu-btn" data-menu-btn aria-label="More actions">&#8942;</button>
+            <div class="menu-panel">
+              <button type="button" data-edit="${g.id}">Edit</button>
+              ${canManage ? `<button type="button" class="danger" data-remove="${g.id}">Remove</button>` : ''}
+            </div>
+          </div>
+        </div>
+        <div class="mono" style="font-size:10.5px; color:var(--ink-dim);">ADDED BY ${MG.escapeHtml(MG.resolveName(g.proposedBy && g.proposedBy.uid, g.proposedBy && g.proposedBy.name))}</div>
+        ${g.description ? `<p style="font-size:13px; color:var(--ink-dim); line-height:1.5; margin:0;">${MG.escapeHtml(g.description)}</p>` : ''}
+        <button class="btn btn-primary btn-sm" data-promote="${g.id}" type="button" style="margin-top:auto; width:100%;">Move to Vote</button>
+      </div>
+    </div>`;
+}
+
+function renderGrid() {
+  const grid = document.getElementById('watchlist-grid');
+  if (currentItems.length === 0) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Nothing on the watchlist yet — add something worth keeping an eye on.</div>`;
+    return;
+  }
+
+  grid.innerHTML = currentItems.map(renderCard).join('');
+
+  grid.querySelectorAll('[data-promote]').forEach((btn) => {
+    btn.onclick = () => {
+      btn.disabled = true;
+      MG.promoteToVote(btn.dataset.promote).catch((e) => alert(e.message));
+    };
+  });
+  grid.querySelectorAll('[data-edit]').forEach((btn) => {
+    btn.onclick = () => {
+      const game = currentItems.find((g) => g.id === btn.dataset.edit);
+      if (game) MG.openGameFormModal(game);
+    };
+  });
+  grid.querySelectorAll('[data-remove]').forEach((btn) => {
+    btn.onclick = () => {
+      if (!confirm("Remove this from the watchlist? This can't be undone.")) return;
+      btn.disabled = true;
+      MG.withdrawGame(btn.dataset.remove).catch((e) => alert(e.message));
+    };
+  });
+  MG.initMenus(grid);
+}
+
+MG.ready('watchlist', () => {
+  document.getElementById('btn-add-watchlist').onclick = () => MG.openAddToWatchlistModal();
+
+  MG.db.collection('games').where('status', '==', 'watchlist').onSnapshot((snap) => {
+    currentItems = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (MG.toDate(b.proposedAt) || 0) - (MG.toDate(a.proposedAt) || 0));
+    renderGrid();
+  }, (err) => {
+    console.error(err);
+    document.getElementById('watchlist-grid').innerHTML =
+      `<p class="mono" style="grid-column:1/-1; color:#ff8a6a; font-size:12px;">${MG.escapeHtml(err.message)}</p>`;
+  });
+});
+</script>
+</body>
+</html>

@@ -23,9 +23,20 @@ This is the model as actually implemented in `assets/app.js` (the earlier planni
 games (collection)
   └─ doc per game: title, platforms[], genres[], coopType, minPlayers, maxPlayers,
      description, storeUrl, steamAppId, image,
-     status ("proposed"/"approved"/"archived" — "archived" just drops it off the
-     Games library; demoting an approved game back to a vote returns it to
-     "proposed" and clears votes rather than adding a fourth status),
+     status ("watchlist"/"proposed"/"approved"/"archived" — every transition
+     reuses the same doc rather than creating a new one, so nothing has to be
+     re-entered as an idea moves through the lifecycle:
+       watchlist  → proposed   MG.promoteToVote     (open to any friend)
+       proposed   → watchlist  MG.demoteToWatchlist  (proposer/admin only)
+       proposed   → approved   unanimous yes (MG.setVote, auto)
+       approved   → proposed   MG.demoteGame         (proposer/admin only)
+       approved   → archived   MG.archiveGame        (proposer/admin only)
+     "watchlist" doesn't get its own vote UI — it's a flat, no-pressure list
+     (Watchlist page) for things worth remembering that aren't ready for a
+     vote yet. A "proposed" game where every friend has voted but it didn't
+     reach unanimous yes is a dead end without a status of its own: the
+     Games page detects that case client-side (yes+no >= friendCount) and
+     swaps its Yes/No buttons for Remove/Move-to-Watchlist instead),
      proposedBy {uid, name}, proposedAt, votes ({uid: true}),
      approvedAt, lastActivityAt (bumped on any milestone/todo write — this is
      what powers the Dashboard's "Recently Active" widget without a
@@ -94,8 +105,9 @@ Plain static pages, no build step — sharing one stylesheet and one JS file so 
 
 ```
 index.html            Dashboard (home)
-recommendations.html  Propose + vote on games
-games.html             Approved game library
+games.html             Approved/Archived library, plus a "Up for a Vote"
+                        strip above it for anything currently proposed
+watchlist.html          Flat, no-vote list of things worth keeping an eye on
 game.html?id=          One game's milestones, to-dos, notes (Steam-achievement suggestions live here)
 calendar.html          Propose + RSVP + browse sessions
 profile.html            Your display name + photo (click the avatar in the nav)

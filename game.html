@@ -46,11 +46,16 @@
     </div>
   </div>
 
-  <div class="wrap row" style="padding-top:16px; justify-content:flex-end; flex-wrap:wrap; gap:10px;">
-    <button id="btn-check-updates" class="btn btn-ghost btn-sm" type="button" style="display:none;">Check for Updates</button>
+  <div class="wrap row" style="padding-top:16px; justify-content:flex-end; align-items:center; gap:10px;">
     <button id="btn-edit-game" class="btn btn-ghost btn-sm" type="button">Edit</button>
-    <button id="btn-demote-game" class="btn btn-ghost btn-sm" type="button">Move to Recommendations</button>
-    <button id="btn-archive-game" class="btn btn-ghost btn-sm" type="button">Archive</button>
+    <div class="menu">
+      <button type="button" class="menu-btn" data-menu-btn aria-label="More actions">&#8942;</button>
+      <div class="menu-panel">
+        <button id="btn-check-updates" type="button" style="display:none;">Check for Updates</button>
+        <button id="btn-demote-game" type="button">Move to a Vote</button>
+        <button id="btn-archive-game" type="button" class="danger">Archive</button>
+      </div>
+    </div>
   </div>
 
   <div class="wrap grid-2" style="padding:28px 40px;">
@@ -293,13 +298,14 @@ function loadGame() {
 
   document.getElementById('btn-edit-game').onclick = () => { if (currentGame) MG.openGameFormModal(currentGame); };
   document.getElementById('btn-demote-game').onclick = () => {
-    if (!confirm('Move this back to Recommendations for a fresh vote? Existing votes will be cleared.')) return;
-    MG.demoteGame(gameId).then(() => { location.href = 'recommendations.html'; }).catch((e) => alert(e.message));
+    if (!confirm('Move this back up for a fresh vote? Existing votes will be cleared.')) return;
+    MG.demoteGame(gameId).then(() => { location.href = 'games.html'; }).catch((e) => alert(e.message));
   };
   document.getElementById('btn-archive-game').onclick = () => {
     if (!confirm('Archive this game? It will drop off the Games library.')) return;
     MG.archiveGame(gameId).then(() => { location.href = 'games.html'; }).catch((e) => alert(e.message));
   };
+  MG.initMenus();
 }
 
 function renderSessionHistory(past) {
@@ -390,7 +396,7 @@ async function openUpdatesModal(appId, title) {
     <div id="updates-list" class="stack" style="margin-top:18px; max-height:360px; overflow-y:auto;">
       <p class="mono" style="font-size:11px; color:var(--ink-dim);">Checking Steam…</p>
     </div>
-    <p class="mono" style="font-size:10.5px; color:var(--ink-dim); margin-top:16px; line-height:1.5;">See something worth revisiting? Close this and use "Move to Recommendations" to bring it back up for a vote.</p>
+    <p class="mono" style="font-size:10.5px; color:var(--ink-dim); margin-top:16px; line-height:1.5;">See something worth revisiting? Close this and use "Move to a Vote" to bring it back up for a vote.</p>
     <div class="row" style="justify-content:flex-end; margin-top:14px;">
       <button class="btn btn-ghost" type="button" id="up-close">Close</button>
     </div>

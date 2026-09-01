@@ -82,15 +82,20 @@ service cloud.firestore {
     // themselves. Withdrawing/archiving/demoting a game is different: it
     // undoes someone else's proposal outright, so those require the
     // proposer or an admin. This function recognizes an update as one of
-    // those two specifically by its *result* rather than by field name
+    // those specifically by its *result* rather than by field name
     // (archiving always ends in status "archived"; demoting is always
-    // "approved" -> "proposed") — a friend's own vote never produces
-    // either of those transitions (voting only ever moves a game from
-    // "proposed" to "approved"), so this can't accidentally catch voting
-    // or an ordinary detail edit (which never changes status at all).
+    // "approved" -> "proposed" or "proposed" -> "watchlist") — a friend's
+    // own vote never produces any of those transitions (voting only ever
+    // moves a game from "proposed" to "approved"), so this can't
+    // accidentally catch voting or an ordinary detail edit (which never
+    // changes status at all). Promoting FROM Watchlist ("watchlist" ->
+    // "proposed") is deliberately NOT included here — like proposing a
+    // brand-new game, that's a forward/additive action open to any friend,
+    // not one that undoes someone else's work.
     function isGameArchiveOrDemote() {
       return request.resource.data.status == 'archived' ||
-        (resource.data.status == 'approved' && request.resource.data.status == 'proposed');
+        (resource.data.status == 'approved' && request.resource.data.status == 'proposed') ||
+        (resource.data.status == 'proposed' && request.resource.data.status == 'watchlist');
     }
 
     match /games/{gameId} {
