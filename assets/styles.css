@@ -27,6 +27,13 @@ a:hover{ color:#fff; }
 .eyebrow{ font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); display:inline-flex; align-items:center; gap:8px; }
 .eyebrow::before{ content:""; display:inline-block; width:5px; height:13px; background:var(--accent); transform:skewX(-14deg); box-shadow:0 0 8px -1px var(--accent); flex-shrink:0; }
 
+/* Breadcrumb-style "back to X" link (e.g. game detail -> Games) — muted
+   nav-adjacent wayfinding, not a content link, so it deliberately skips
+   the accent-orange default `a` color in favor of the same dim/strong
+   pairing used elsewhere for meta text. */
+.back-link{ display:inline-flex; align-items:center; gap:6px; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-dim); text-decoration:none; }
+.back-link:hover{ color:var(--ink-strong); }
+
 /* corner-chamfer geometry, the site's recurring angular motif */
 .chamfer{ clip-path: polygon(24px 0,100% 0,100% calc(100% - 24px), calc(100% - 24px) 100%, 0 100%, 0 24px); }
 .chamfer-sm{ clip-path: polygon(10px 0,100% 0,100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
@@ -148,7 +155,12 @@ button{ font: inherit; }
 .game-banner-content{ position:absolute; left:28px; bottom:22px; right:28px; align-items:flex-end; justify-content:space-between; gap:12px; }
 .game-banner-content h1{ font-size:34px; margin-top:8px; }
 @media (max-width:640px){
-  .game-banner{ display:block; height:auto; min-height:160px; padding:18px 20px; }
+  /* Full-bleed edge-to-edge on mobile instead of the chamfered, inset
+     card look — margin cancels .wrap's own 18px page padding (the only
+     thing insetting it, since .game-banner isn't nested in another
+     .wrap) and clip-path:none drops the cut corners since a corner cut
+     mid-image reads as a mistake once the image reaches the screen edge. */
+  .game-banner{ display:block; height:auto; min-height:160px; padding:18px 20px; margin-left:-18px; margin-right:-18px; clip-path:none; }
   .game-banner-content{ position:static; flex-wrap:wrap; align-items:flex-start; }
   .game-banner-content h1{ font-size:24px; }
 }
