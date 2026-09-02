@@ -251,6 +251,7 @@ const NAV_ITEMS = [
   ['games', 'Games', 'games.html'],
   ['watchlist', 'Watchlist', 'watchlist.html'],
   ['calendar', 'Calendar', 'calendar.html'],
+  ['crew', 'Crew', 'crew.html'],
   ['changelog', 'Changelog', 'changelog.html'],
 ];
 
@@ -437,6 +438,16 @@ MG.ready = function (activePage, onReady) {
       }
       MG.isFriend = true;
       MG.isAdmin = !!friendDoc.data().isAdmin;
+
+      // Stamps this friend's email onto their own users/{uid} doc on every
+      // sign-in (not just when they save a Profile edit) — `friends` is
+      // keyed by email, `users` by uid, and this is the only link between
+      // them. Without it, the Crew page could only ever resolve someone's
+      // live name/photo if they'd already been credited on a game/session
+      // somewhere; with it, it can look up anyone who's ever signed in.
+      // Awaited (not fire-and-forget) so it's guaranteed committed before
+      // the users snapshot just below is fetched.
+      await MG.db.collection('users').doc(user.uid).set({ email: user.email }, { merge: true });
 
       const friendsSnap = await MG.db.collection('friends').get();
       MG.friends = friendsSnap.docs.map(d => ({ email: d.id, ...d.data() }));
@@ -826,8 +837,15 @@ MG.approveRequest = async function (uid, email, name) {
   const batch = MG.db.batch();
   // merge: true — if this email already has a friend doc (e.g. an admin
   // pre-provisioned it with isAdmin: true before the person requested
-  // access), approving must not silently wipe that out.
-  batch.set(MG.db.collection('friends').doc(email), { displayName: name }, { merge: true });
+  // access), approving must not silently wipe that out. joinedAt only
+  // gets set here (there's no other code path that creates a friend doc —
+  // hand-adding one in the console skips it), so a hand-added friend just
+  // won't show a "member since" on the Crew page, same as any other field
+  // you'd normally set through the app but typed in by hand instead.
+  batch.set(MG.db.collection('friends').doc(email), {
+    displayName: name,
+    joinedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
   batch.delete(MG.db.collection('joinRequests').doc(uid));
   await batch.commit();
 };

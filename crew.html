@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6a1a">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-640x1136.png" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-750x1334.png" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1242x2208.png" media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1125x2436.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-828x1792.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1242x2688.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1170x2532.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1284x2778.png" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1179x2556.png" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1290x2796.png" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1206x2622.png" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1320x2868.png" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MuhdGaming">
+<title>MuhdGaming — Crew</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Titillium+Web:wght@400;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<div id="mg-nav"></div>
+<div id="mg-gate" class="loading">Loading…</div>
+
+<main id="mg-main" hidden>
+  <div class="wrap" style="padding-top:40px;">
+    <div class="eyebrow">Crew // The Roster</div>
+    <h1 style="font-size:32px; margin-top:10px;">Who's playing</h1>
+    <p style="margin-top:10px; color:var(--ink-dim); max-width:60ch;">Everyone with access to MuhdGaming.</p>
+  </div>
+
+  <div id="crew-grid" class="wrap grid-3" style="padding:28px 40px 60px;"></div>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="assets/app.js"></script>
+<script>
+function formatJoinedDate(ts) {
+  const d = MG.toDate(ts);
+  if (!d) return null;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// friends (email-keyed, the allowlist) and users (uid-keyed, live
+// name/photo) only ever link up via the email MG.ready stamps onto
+// users/{uid} at sign-in — build that reverse lookup once so every friend
+// can be resolved to their live profile, not just whoever's already been
+// credited on a game or session somewhere.
+function buildEmailToUid() {
+  const map = {};
+  Object.entries(MG.userProfiles).forEach(([uid, profile]) => {
+    if (profile.email) map[profile.email] = uid;
+  });
+  return map;
+}
+
+function renderCrew() {
+  const grid = document.getElementById('crew-grid');
+  const emailToUid = buildEmailToUid();
+
+  // Founding members first (earliest joinedAt), then alphabetically by
+  // name for anyone without one — a hand-added-in-the-console friend, or
+  // anyone who joined before this was tracked.
+  const sorted = [...MG.friends].sort((a, b) => {
+    const aTime = MG.toDate(a.joinedAt);
+    const bTime = MG.toDate(b.joinedAt);
+    if (aTime && bTime) return aTime - bTime;
+    if (aTime) return -1;
+    if (bTime) return 1;
+    return (a.displayName || a.email).localeCompare(b.displayName || b.email);
+  });
+
+  if (sorted.length === 0) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">No one's on the roster yet.</div>`;
+    return;
+  }
+
+  grid.innerHTML = sorted.map((f) => {
+    const uid = emailToUid[f.email];
+    const joined = formatJoinedDate(f.joinedAt);
+    return `
+    <div class="panel chamfer" style="padding:22px; display:flex; flex-direction:column; align-items:center; text-align:center; gap:12px;">
+      ${MG.resolveAvatarHtml(uid, f.displayName, f.photoURL, 'lg')}
+      <div>
+        <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:19px; color:var(--ink-strong);">${MG.escapeHtml(MG.resolveName(uid, f.displayName))}</div>
+        ${f.isAdmin ? `<span class="chip chip-accent" style="margin-top:8px;">Admin</span>` : ''}
+      </div>
+      <div class="mono" style="font-size:10.5px; color:var(--ink-dim); margin-top:auto;">${joined ? `MEMBER SINCE ${MG.escapeHtml(joined.toUpperCase())}` : 'MEMBER SINCE — UNKNOWN'}</div>
+    </div>`;
+  }).join('');
+}
+
+MG.ready('crew', renderCrew);
+</script>
+</body>
+</html>

@@ -58,7 +58,10 @@ sessions (collection)          ← the calendar
      vote is whose when rendering the list
 
 friends (collection)           ← the allowlist
-  └─ doc per friend, ID = email: displayName, photoURL, isAdmin (optional bool)
+  └─ doc per friend, ID = email: displayName, photoURL, isAdmin (optional bool),
+     joinedAt (set by MG.approveRequest only — a friend added by hand in the
+     console skips it, so the Crew page's "member since" is best-effort, not
+     guaranteed for every friend)
 
 joinRequests (collection)      ← self-service "Request Access" queue
   └─ doc per request, ID = requester's uid: email, name, photoURL, requestedAt
@@ -66,7 +69,12 @@ joinRequests (collection)      ← self-service "Request Access" queue
 users (collection)             ← live profile info, separate from `friends`
   └─ doc per person, ID = their uid: displayName, photoDataUrl (a small
      resized/compressed JPEG stored as a data URL — no Storage product
-     needed, comfortably under Firestore's 1MiB document limit)
+     needed, comfortably under Firestore's 1MiB document limit), email
+     (stamped by MG.ready on every sign-in, not just a Profile save — this
+     is the only link between `friends` (keyed by email) and `users` (keyed
+     by uid); the Crew page reverse-looks-up each friend's uid through it to
+     resolve their live name/photo instead of only the frozen friends-doc
+     values)
 ```
 
 **Why names/photos are stored twice.** Every place someone is credited (a game's `proposedBy`, a session's `rsvps`, a note's `authorName`, a milestone/to-do's `createdBy`) freezes their name at the moment they act — that's what lets those render without extra lookups. But it means a renamed friend's *old* activity would still show their old name, which isn't what "change your name" should mean. The `users` collection is the fix: every render resolves through `MG.resolveName(uid, frozenNameFallback)` / `MG.resolveAvatarHtml(...)`, which prefers a friend's live profile and only falls back to the frozen value if they've never visited the Profile page. Changing your name or photo on `profile.html` therefore updates it everywhere you've ever been credited, not just future activity.
@@ -110,6 +118,8 @@ games.html             Recommendations / Approved / Archived, as tabs
 watchlist.html          Flat, no-vote list of things worth keeping an eye on
 game.html?id=          One game's milestones, to-dos, notes (Steam-achievement suggestions live here)
 calendar.html          Propose + RSVP + browse sessions
+crew.html               The roster — everyone with access, avatar + admin
+                        badge + member-since, sorted oldest member first
 profile.html            Your display name + photo (click the avatar in the nav)
 
 assets/styles.css      The whole visual design system — one file
