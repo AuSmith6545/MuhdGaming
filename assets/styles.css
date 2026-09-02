@@ -51,6 +51,11 @@ a:hover{ color:#fff; }
 .quiet-line{ font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.06em; color:var(--ink-dim); display:flex; align-items:center; gap:8px; }
 .quiet-line .dot{ width:6px; height:6px; border-radius:50%; background:var(--line-bright); flex-shrink:0; }
 
+/* Low-emphasis text link — e.g. the Changelog link tucked into the
+   Dashboard's bottom-right corner. Reads as a footnote, not a nav item. */
+.footer-link{ font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.05em; color:var(--ink-dim); text-decoration:none; }
+.footer-link:hover{ color:var(--ink-strong); }
+
 /* layout utilities */
 .row{ display:flex; align-items:center; gap:12px; }
 .stack{ display:flex; flex-direction:column; gap:12px; }
@@ -70,7 +75,7 @@ a:hover{ color:#fff; }
 /* nav shell (rendered by assets/app.js into #mg-nav on every page) */
 .mg-nav{ position:relative; display:flex; align-items:center; justify-content:space-between; padding:0 40px; height:64px; border-bottom:1px solid var(--line); background:linear-gradient(180deg, #141a20, #0e1216); }
 .mg-nav .brand{ display:flex; align-items:center; gap:10px; text-decoration:none; flex-shrink:0; }
-.mg-nav .mark{ width:28px; height:28px; background:var(--accent); display:flex; align-items:center; justify-content:center; font-family:'Rajdhani',sans-serif; font-weight:700; font-size:13px; color:#0a0d10; flex-shrink:0; }
+.mg-nav .mark{ height:34px; width:auto; display:block; object-fit:contain; flex-shrink:0; }
 .mg-nav .wordmark{ font-family:'Rajdhani',sans-serif; font-weight:700; font-size:15px; letter-spacing:.08em; color:var(--ink-strong); }
 .mg-nav-panel{ display:flex; align-items:center; flex:1; min-width:0; margin-left:40px; }
 .mg-nav .links{ display:flex; gap:28px; flex-wrap:wrap; }
@@ -139,6 +144,15 @@ button{ font: inherit; }
 }
 .field input:focus, .field select:focus, .field textarea:focus{ outline:2px solid var(--accent); outline-offset:1px; }
 .field textarea{ resize:vertical; min-height:70px; font-family:inherit; }
+
+/* Standalone input — same look as .field's inputs, for spots like the
+   Games page search box that live outside a labeled .field wrapper. */
+.search-input{
+  font-family:'Titillium Web',sans-serif; font-size:14px; color:var(--ink-strong);
+  background:var(--panel-2); border:1px solid var(--line-bright); padding:10px 12px;
+  clip-path: polygon(6px 0,100% 0,100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+}
+.search-input:focus{ outline:2px solid var(--accent); outline-offset:1px; }
 
 /* modal (propose game / propose session / add milestone / add to-do) */
 .modal-backdrop{ position:fixed; inset:0; background:rgba(4,5,6,.7); display:flex; align-items:flex-start; justify-content:center; padding:8vh 20px; z-index:50; overflow-y:auto; }
@@ -291,8 +305,11 @@ button{ font: inherit; }
    navigation above the page content, not a filter control. overflow-x
    with nowrap (never wrap) is the safety net on narrow screens: a tab bar
    that wrapped to a second line would fight with the "higher level, not
-   part of the content flow" feel this is going for. */
-.page-tabbar{ display:flex; gap:28px; border-bottom:1px solid var(--line); overflow-x:auto; white-space:nowrap; }
+   part of the content flow" feel this is going for. overflow-y is pinned
+   to hidden explicitly — per spec, setting only overflow-x to a non-visible
+   value makes overflow-y compute to auto too, which on desktop showed a
+   stray vertical scrollbar from a few px of incidental overflow. */
+.page-tabbar{ display:flex; gap:28px; border-bottom:1px solid var(--line); overflow-x:auto; overflow-y:hidden; white-space:nowrap; }
 .page-tab{ font-family:'Rajdhani',sans-serif; font-weight:600; font-size:15px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-dim); background:transparent; border:none; padding:14px 2px; margin-bottom:-1px; cursor:pointer; border-bottom:2px solid transparent; flex-shrink:0; }
 .page-tab:hover{ color:var(--ink-strong); }
 .page-tab.active{ color:#fff; border-bottom-color:#fff; text-shadow:0 0 14px rgba(255,255,255,.5); }

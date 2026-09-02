@@ -33,8 +33,8 @@
 
 <main id="mg-main" hidden>
   <div class="wrap page-tabbar" style="margin-top:40px;">
-    <button class="page-tab" data-status="proposed" id="tab-proposed">Recommendations</button>
     <button class="page-tab active" data-status="approved" id="tab-approved">Approved</button>
+    <button class="page-tab" data-status="proposed" id="tab-proposed">Recommendations</button>
     <button class="page-tab" data-status="archived" id="tab-archived">Archived</button>
   </div>
 
@@ -45,7 +45,10 @@
       <p id="games-sub" style="margin-top:10px; color:var(--ink-dim); max-width:60ch;">Everything approved for the shared library — each with its own milestones and to-do list.</p>
     </div>
     <button id="btn-propose-game" class="btn btn-primary" style="display:none;">+ Propose a Game</button>
-    <button id="btn-open-filters" class="btn btn-ghost" type="button" style="display:none;">Filters</button>
+    <div id="search-row" class="row" style="display:none; gap:10px; width:100%; max-width:420px;">
+      <input id="games-search" class="search-input" type="text" placeholder="Search by title…" style="flex:1; min-width:0;">
+      <button id="btn-open-filters" class="btn btn-ghost" type="button" style="flex-shrink:0;">Filters</button>
+    </div>
   </div>
 
   <div id="sort-row" class="wrap row mono" style="padding-top:22px; font-size:11px; color:var(--ink-dim); letter-spacing:.05em; gap:20px; display:none;">
@@ -61,10 +64,6 @@
 <div id="filter-drawer" class="side-drawer">
   <button id="btn-close-filters" class="drawer-close" type="button" aria-label="Close">&times;</button>
   <div class="eyebrow">Filter</div>
-  <div class="field" style="margin-top:16px;">
-    <label>Search</label>
-    <input id="games-search" type="text" placeholder="Search by title…">
-  </div>
   <div id="games-facets" class="stack" style="margin-top:18px; gap:14px;"></div>
 </div>
 
@@ -164,9 +163,11 @@ function renderFacets() {
   updateFilterButtonLabel();
 }
 
-// Filter drawer (Approved/Archived tabs) — Search + Platform/Genre chips
-// live off-screen behind one "Filters" button instead of sitting inline
-// on the page, so the page itself doesn't fill up with facet chips.
+// Filter drawer (Approved/Archived tabs) — Platform/Genre chips live
+// off-screen behind one "Filters" button instead of sitting inline on the
+// page, so the page itself doesn't fill up with facet chips. Search stays
+// inline on the page itself (all breakpoints) since it's the primary way
+// in, not a secondary refinement like the chips.
 function updateFilterButtonLabel() {
   const btn = document.getElementById('btn-open-filters');
   if (!btn) return;
@@ -350,7 +351,7 @@ function renderGames(status) {
   document.getElementById('tab-archived').classList.toggle('active', status === 'archived');
   document.getElementById('sort-row').style.display = status === 'proposed' ? '' : 'none';
   document.getElementById('btn-propose-game').style.display = status === 'proposed' ? '' : 'none';
-  document.getElementById('btn-open-filters').style.display = status === 'proposed' ? 'none' : '';
+  document.getElementById('search-row').style.display = status === 'proposed' ? 'none' : '';
 
   const copy = TAB_COPY[status];
   document.getElementById('games-eyebrow').textContent = copy.eyebrow;

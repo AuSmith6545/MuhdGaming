@@ -252,7 +252,6 @@ const NAV_ITEMS = [
   ['watchlist', 'Watchlist', 'watchlist.html'],
   ['calendar', 'Calendar', 'calendar.html'],
   ['crew', 'Crew', 'crew.html'],
-  ['changelog', 'Changelog', 'changelog.html'],
 ];
 
 function renderNav(activePage) {
@@ -267,7 +266,7 @@ function renderNav(activePage) {
   const user = MG.auth.currentUser;
   navEl.innerHTML = `
     <a href="index.html" class="brand">
-      <div class="mark chamfer-xs">MG</div>
+      <img class="mark" src="assets/img/mascot-logo-nav.png" alt="MuhdGaming">
       <span class="wordmark">MUHDGAMING</span>
     </a>
     <button id="mg-nav-toggle" class="nav-toggle" type="button" aria-label="Menu" aria-expanded="false">
