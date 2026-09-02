@@ -10,14 +10,38 @@
 
 *{ box-sizing:border-box; }
 html,body{ margin:0; min-height:100%; }
-body{
-  font-family:'Titillium Web',ui-sans-serif,system-ui,sans-serif;
-  color:var(--ink);
+/* body::before is the fix for iOS's status-bar strip (see below) — sharing
+   this exact background declaration with body itself, both pinned via
+   background-attachment:fixed, is what makes the two paint as one
+   continuous backdrop instead of two visibly different fills. */
+body, body::before{
   background:
     radial-gradient(900px 520px at 6% -8%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%),
     radial-gradient(800px 560px at 100% 105%, rgba(130,175,225,0.07), transparent 62%),
     linear-gradient(165deg, #0e1216 0%, #090b0d 48%, #0b0e11 100%);
   background-attachment:fixed;
+}
+body{
+  font-family:'Titillium Web',ui-sans-serif,system-ui,sans-serif;
+  color:var(--ink);
+  /* #mg-nav is pinned (position:fixed) and out of flow — this reserves
+     the space it would otherwise occupy so page content doesn't start
+     out hidden underneath it. Kept in sync with .mg-nav's own height
+     and body::before's own height, both below. */
+  padding-top:calc(64px + env(safe-area-inset-top));
+}
+/* Static fill for the iOS status-bar/notch strip on an installed
+   (standalone) PWA — a plain CSS pseudo-element rather than a real DOM
+   node so it's present immediately on load, with no dependency on
+   assets/app.js having run or the sign-in gate having resolved. It only
+   fills that strip with the page background (see above) and pins it so
+   nothing scrolls through it; the nav bar sits directly below it, not
+   inside it — see .mg-nav's own top offset. env(safe-area-inset-top) is
+   0 on anything without a notch/status-bar inset (desktop, most
+   Android), so this is a zero-height no-op there. */
+body::before{
+  content:""; position:fixed; top:0; left:0; right:0; z-index:45;
+  height:env(safe-area-inset-top); pointer-events:none;
 }
 h1,h2,h3{ font-family:'Rajdhani',sans-serif; font-weight:700; margin:0; color:var(--ink-strong); text-wrap:balance; }
 a{ color:var(--accent); }
@@ -72,8 +96,20 @@ a:hover{ color:#fff; }
   .grid-2,.grid-3,.grid-4{ grid-template-columns:1fr; }
 }
 
-/* nav shell (rendered by assets/app.js into #mg-nav on every page) */
-.mg-nav{ position:relative; display:flex; align-items:center; justify-content:space-between; padding:0 40px; height:64px; border-bottom:1px solid var(--line); background:linear-gradient(180deg, #141a20, #0e1216); }
+/* nav shell (rendered by assets/app.js into #mg-nav on every page) —
+   pinned to the top of the viewport on every breakpoint (position:fixed,
+   not sticky, since it needs to stay put through the mobile dropdown
+   panel opening/closing too), sitting directly below the status-bar fill
+   (body::before, above) rather than extending up into it itself — its
+   own top offset is that fill's height, env(safe-area-inset-top), which
+   is 0 (i.e. flush with the real viewport top) anywhere without a
+   notch/status-bar inset. */
+.mg-nav{
+  position:fixed; top:env(safe-area-inset-top); left:0; right:0; z-index:45;
+  display:flex; align-items:center; justify-content:space-between;
+  height:64px; padding:0 40px;
+  border-bottom:1px solid var(--line); background:linear-gradient(180deg, #141a20, #0e1216);
+}
 .mg-nav .brand{ display:flex; align-items:center; gap:10px; text-decoration:none; flex-shrink:0; }
 .mg-nav .mark{ height:34px; width:auto; display:block; object-fit:contain; flex-shrink:0; }
 .mg-nav .wordmark{ font-family:'Rajdhani',sans-serif; font-weight:700; font-size:15px; letter-spacing:.08em; color:var(--ink-strong); }
@@ -96,7 +132,7 @@ a:hover{ color:#fff; }
   .mg-nav{ padding:0 18px; }
   .nav-toggle{ display:flex; }
   .mg-nav-panel{
-    position:absolute; top:64px; left:0; right:0; z-index:40; margin-left:0;
+    position:absolute; top:100%; left:0; right:0; z-index:40; margin-left:0;
     flex-direction:column; align-items:stretch;
     background:linear-gradient(180deg, #141a20, #0e1216); border-bottom:1px solid var(--line);
     max-height:0; overflow:hidden; transition:max-height .25s ease;
@@ -265,7 +301,7 @@ button{ font: inherit; }
     position:fixed; top:0; right:0; bottom:0; left:auto;
     width:min(88vw,380px); max-width:380px;
     z-index:60; clip-path:none; border-left:1px solid var(--line-bright);
-    overflow-y:auto; padding-top:56px !important;
+    overflow-y:auto; padding-top:calc(56px + env(safe-area-inset-top)) !important;
     transform:translateX(100%);
     transition:transform .28s ease;
     box-shadow:-10px 0 34px -12px rgba(0,0,0,.7);
@@ -274,7 +310,7 @@ button{ font: inherit; }
 
   .cal-detail-close{
     display:flex; align-items:center; justify-content:center;
-    position:absolute; top:14px; right:14px; width:30px; height:30px;
+    position:absolute; top:calc(14px + env(safe-area-inset-top)); right:14px; width:30px; height:30px;
     border:1px solid var(--line-bright); background:transparent; color:var(--ink-strong);
     font-size:18px; line-height:1; cursor:pointer; z-index:1;
   }
@@ -323,14 +359,14 @@ button{ font: inherit; }
 .side-drawer{
   position:fixed; top:0; right:0; bottom:0; width:min(90vw,360px); max-width:360px;
   background:linear-gradient(155deg, #161c22 0%, #0f1317 100%); border-left:1px solid var(--line-bright);
-  z-index:60; overflow-y:auto; padding:56px 22px 22px;
+  z-index:60; overflow-y:auto; padding:calc(56px + env(safe-area-inset-top)) 22px 22px;
   transform:translateX(100%); transition:transform .28s ease;
   box-shadow:-10px 0 34px -12px rgba(0,0,0,.7);
 }
 .side-drawer.open{ transform:translateX(0); }
 .drawer-close{
   display:flex; align-items:center; justify-content:center;
-  position:absolute; top:14px; right:14px; width:30px; height:30px;
+  position:absolute; top:calc(14px + env(safe-area-inset-top)); right:14px; width:30px; height:30px;
   border:1px solid var(--line-bright); background:transparent; color:var(--ink-strong);
   font-size:18px; line-height:1; cursor:pointer;
 }
