@@ -10,11 +10,11 @@
 
 *{ box-sizing:border-box; }
 html,body{ margin:0; min-height:100%; }
-/* body::before is the fix for iOS's status-bar strip (see below) — sharing
-   this exact background declaration with body itself, both pinned via
-   background-attachment:fixed, is what makes the two paint as one
-   continuous backdrop instead of two visibly different fills. */
-body, body::before{
+/* body::before/::after are the fix for iOS's status-bar and home-indicator
+   strips (see below) — sharing this exact background declaration with body
+   itself, all pinned via background-attachment:fixed, is what makes them
+   paint as one continuous backdrop instead of visibly different fills. */
+body, body::before, body::after{
   background:
     radial-gradient(900px 520px at 6% -8%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%),
     radial-gradient(800px 560px at 100% 105%, rgba(130,175,225,0.07), transparent 62%),
@@ -42,6 +42,16 @@ body{
 body::before{
   content:""; position:fixed; top:0; left:0; right:0; z-index:45;
   height:env(safe-area-inset-top); pointer-events:none;
+}
+/* Same fix, bottom edge — the strip iOS reserves for the home-indicator
+   swipe gesture (and, outside standalone mode, Safari's own bottom
+   toolbar). No page content is ever meant to sit fixed down there, so
+   this is paint-only, same as ::before. env(safe-area-inset-bottom) is
+   0 on anything without that reserved strip, so a zero-height no-op
+   there too. */
+body::after{
+  content:""; position:fixed; bottom:0; left:0; right:0; z-index:45;
+  height:env(safe-area-inset-bottom); pointer-events:none;
 }
 h1,h2,h3{ font-family:'Rajdhani',sans-serif; font-weight:700; margin:0; color:var(--ink-strong); text-wrap:balance; }
 a{ color:var(--accent); }

@@ -13,6 +13,17 @@
 
 window.MG_CHANGELOG = [
   {
+    date: '2026-09-01',
+    title: 'Games reorganized, new logo, smoother installed-app experience',
+    summary: "Approved is now the default Games tab, search moved onto the page itself, a new mascot logo replaces the placeholder mark, and the installed app fixes a couple of rough PWA edges.",
+    details: [
+      "Games: Approved is now the first tab (it's the default view), search lives on the page itself instead of inside the filter drawer, and a stray scrollbar on the tab bar is fixed.",
+      "Changelog moved off the main nav to a quiet link on the Dashboard.",
+      "New mascot logo in the top nav, replacing the placeholder \"MG\" mark.",
+      "The nav bar now stays pinned at the top instead of scrolling away, and the installed home-screen app no longer shows a white bar behind the status bar or home-indicator area.",
+    ],
+  },
+  {
     date: '2026-08-30',
     title: 'A big batch of updates',
     summary: "Real yes/no voting, Steam price/release info, session history, away-tracking on the Calendar, and a security + mobile pass.",
