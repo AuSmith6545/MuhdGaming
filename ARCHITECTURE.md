@@ -140,6 +140,8 @@ Google sign-in is the default, but Firebase Authentication → Sign-in method al
 
 **To do:** the current icon/splash artwork is a placeholder — solid `--accent` orange with the plain "MG" nav mark, generated to unblock install support, not a real design pass. Revisit once real branding exists, and consider replacing the static iOS launch image with an **animated** splash — that'd mean building it as an in-page loading animation (the `#mg-gate` "Loading…" state every page already shows while the sign-in gate resolves is the natural place) rather than the native `apple-touch-startup-image`, since Apple's mechanism only supports a static image.
 
+**To do:** `body::after` (assets/styles.css) fills the bottom safe-area strip (home-indicator gesture area / Safari's bottom toolbar) with the page background on the Dashboard and Games grid, but the `#mg-gate` loading screen and `game.html`'s detail page were reported (2026-09-01, tested live on an installed iOS home-screen app over Remote Control, not locally) to still show a white bar there. Needs visual debugging with local files on desktop — can't be diagnosed blind over a live push-and-check loop, and it's not yet confirmed whether this is a real gap on those two page types specifically or another stale-cached-instance false alarm (installed iOS home-screen apps can keep showing an old page after a push; a re-add to home screen forces the update).
+
 ## One-time setup checklist
 
 1. Create a Firebase project at console.firebase.google.com
