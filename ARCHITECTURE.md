@@ -86,13 +86,20 @@ users (collection)             ← live profile info, separate from `friends`
 
 **Admins** are just a friend doc with `isAdmin: true` — not hardcoded anywhere, for the same reason the friends list itself isn't (keeps identity out of git regardless of repo visibility). An admin sees a "Pending Requests" panel on the Dashboard: anyone who signs in but isn't yet a friend can hit "Request Access" on the gate screen, which writes a `joinRequests` doc with their exact email already attached — approving is then one click (creates the `friends` doc, clears the request) rather than typing an email into the Firestore console by hand. The console is still there as a fallback for adding/editing friends directly.
 
-**No server-side approval/acceptance logic exists** — since the site is 100% static, the "unanimous vote → approved" and "enough RSVPs → accepted" rules run client-side: whoever casts the deciding vote/RSVP is whose browser writes the status change, inside a Firestore transaction (so two friends acting at once can't race into a bad state). All Firestore queries deliberately use only single-field equality filters with client-side sorting — no `orderBy` combined with a `where` on a different field — so the app never needs a Firestore composite index to be created by hand.
+**No server-side approval/acceptance logic exists** — since the site is 100% static, the "2 yes votes → approved" and "enough RSVPs → accepted" rules run client-side: whoever casts the deciding vote/RSVP is whose browser writes the status change, inside a Firestore transaction (so two friends acting at once can't race into a bad state). The rules back-stop what they can of this (see below), but the thresholds themselves live in `assets/app.js`. All Firestore queries deliberately use only single-field equality filters with client-side sorting — no `orderBy` combined with a `where` on a different field — so the app never needs a Firestore composite index to be created by hand.
 
 ## Access control
 
 Google sign-in proves *who* someone is, not that they're allowed in. Firestore Security Rules restrict all reads/writes to friends listed in a `friends` collection in Firestore itself (see `firestore.rules`) — **not** hardcoded in this repo. That's deliberate: none of your friends' emails, and nothing they type anywhere on the site (recommendations, comments, to-do text, calendar entries), ever touches git or GitHub. It all lives only in Firestore, gated by these rules.
 
 Adding a friend = adding one document to the `friends` collection by hand in the Firebase console (Firestore Database → Data tab), doc ID = their email. No code change, no git commit, no redeploy.
+
+Within the crew, the rules also enforce a few things the app's own code assumes — the point being that a restriction shouldn't be defeatable by writing a different field instead of using the button:
+
+- **`proposedBy` is frozen after creation** on games and sessions. Withdraw/archive/demote/cancel are all restricted to "the proposer or an admin", and that check reads `proposedBy.uid` — so if that field were writable, anyone could name themselves the proposer first and then do the restricted thing.
+- **A uid-keyed map may only be changed under your own uid** — `votes`, `interested`, `rsvps`. Otherwise one person could cast both of the yes votes an approval needs. Clearing a map wholesale stays allowed, because every lifecycle reset does exactly that.
+- **Approving takes a yes from the approver plus at least one other person's vote on record.** Rules can't count how many values in a map are `true` (no loops, no filtering), so this is the enforceable share of the 2-yes rule; the residual gap is documented in `firestore.rules` itself.
+- **A profile photo is size-capped** so one oversized avatar can't become everyone's download — every page load reads the whole `users` collection.
 
 ## Steam integration
 
@@ -104,10 +111,15 @@ Firestore/Auth work by letting the browser talk to Firebase directly, which is w
 https://muhdgaming-steam-proxy.ausmithdesign.workers.dev
 ```
 
-Routes (both public, read-only, cached at the edge for an hour):
+Routes (read-only, cached at the edge for an hour). They answer only
+requests from the site's own origin — the CORS allowlist at the top of
+`worker/src/index.js` — because `/achievements` spends this project's own
+Steam API key, and an open proxy would let strangers spend it. `appid` must
+be digits or the request is rejected before anything reaches Steam:
 
 - `GET /appdetails?appid=NNN` → name, description, cover image, platforms, genres, co-op tags
 - `GET /achievements?appid=NNN` → that game's real Steam achievement list (name, description, icon)
+- `GET /news?appid=NNN` → that game's recent Steam announcements
 
 The Steam Web API key the achievements route needs is stored as a Cloudflare Worker **secret** (`STEAM_API_KEY`), set directly via `npx wrangler secret put STEAM_API_KEY` from the `worker/` folder — it's never in this repo. To redeploy after editing `worker/src/index.js`: `cd worker && npx wrangler deploy`.
 
@@ -131,7 +143,18 @@ assets/styles.css      The whole visual design system — one file
 assets/app.js          Firebase init, the sign-in/friend gate, the nav bar,
                         and every Firestore write with real logic in it
                         (vote→approve, RSVP→accept, milestones, to-dos, notes)
+sw.js                   Service worker: caches the app shell (own files +
+                        the pinned Firebase SDK + fonts) so an installed
+                        Home Screen app opens without waiting on the
+                        network. Never caches Firestore data — live data
+                        stays live. Bump CACHE in it to force everyone
+                        onto a fresh copy of the shell at once.
 ```
+
+Because the shell is served from cache first and refreshed in the
+background, a deploy reaches a phone one launch later than it reaches a
+browser tab: the launch right after a change still shows the previous
+version, the one after that is current. Pull-to-refresh hurries it along.
 
 Each page's own inline `<script>` only reads data and renders — the actual writes all funnel through `assets/app.js` so the transaction logic only has to be correct in one place.
 

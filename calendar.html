@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <link rel="manifest" href="manifest.json">
+<!-- Warm up the three external hosts every page needs (Firebase SDK, the
+     fonts stylesheet, the font files themselves) so the DNS lookup and TLS
+     handshake overlap with parsing instead of following it. Matters most on
+     a phone, where each round trip is expensive and this is a multi-page
+     app that pays them again on every navigation. -->
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <meta name="theme-color" content="#ff6a1a">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -292,14 +300,18 @@ function renderDetail() {
   `;
 
   panel.querySelectorAll('[data-rsvp]').forEach((btn) => {
-    btn.onclick = () => { btn.disabled = true; MG.setRsvp(s.id, btn.dataset.rsvp).catch((e) => alert(e.message)); };
+    btn.onclick = () => { btn.disabled = true; MG.setRsvp(s.id, btn.dataset.rsvp).catch((e) => MG.alertModal(e)); };
   });
   panel.querySelector('#btn-edit-session').onclick = () => MG.openEditSessionModal(s);
   const cancelBtn = panel.querySelector('#btn-cancel-session');
   if (cancelBtn) {
-    cancelBtn.onclick = () => {
-      if (!confirm('Cancel this session?')) return;
-      MG.cancelSession(s.id).catch((e) => alert(e.message));
+    cancelBtn.onclick = async () => {
+      const ok = await MG.confirmModal('Cancel this session?', {
+        detail: 'It drops off the calendar for everyone. The session itself is kept, not deleted.',
+        confirmLabel: 'Cancel session', danger: true,
+      });
+      if (!ok) return;
+      MG.cancelSession(s.id).catch((e) => MG.alertModal(e));
     };
   }
 }
@@ -378,7 +390,7 @@ function openAwayDetailModal(uid, entries) {
   modal.querySelectorAll('[data-remove-away]').forEach((btn) => {
     btn.onclick = () => {
       btn.disabled = true;
-      MG.deleteUnavailability(btn.dataset.removeAway).catch((e) => alert(e.message));
+      MG.deleteUnavailability(btn.dataset.removeAway).catch((e) => MG.alertModal(e));
     };
   });
 }

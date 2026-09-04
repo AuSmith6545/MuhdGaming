@@ -52,9 +52,20 @@ service cloud.firestore {
     // correctly on their OLD votes/notes/RSVPs, not just new ones — those
     // still carry a frozen name/photo from when they were written, but
     // every render prefers the live profile here when one exists.
+    //
+    // The size cap mirrors the one in MG.saveProfile. It matters here and
+    // not just in the form because every page load reads this whole
+    // collection: one oversized avatar becomes everyone's download on
+    // every screen, so the limit belongs where it can't be bypassed by
+    // writing from a console instead of the profile page.
     match /users/{uid} {
       allow read: if isFriend();
-      allow write: if isFriend() && uid == request.auth.uid;
+      // Set a little above MG.saveProfile's own 700KB limit on purpose: the
+      // form's error message is the friendlier one, so it should be what a
+      // real person hits first. This is the backstop for a write that never
+      // went through the form at all.
+      allow write: if isFriend() && uid == request.auth.uid
+        && request.resource.data.get('photoDataUrl', '').size() < 750000;
     }
 
     // A friend request: anyone signed in (not just existing friends) can
@@ -98,13 +109,70 @@ service cloud.firestore {
         (resource.data.status == 'proposed' && request.resource.data.status == 'watchlist');
     }
 
+    // Everything above hinges on proposedBy.uid naming who may undo a
+    // proposal — so proposedBy itself has to be frozen after creation, or
+    // the check is trivially defeated: write yourself in as the proposer in
+    // one update (not an archive/demote, so it passes), then archive or
+    // delete as "the proposer" in the next. Same reasoning applies to
+    // sessions below.
+    // get() with a default rather than a bare field read, so a document
+    // written before proposedBy existed can still be edited instead of
+    // being frozen out entirely by a missing-field error.
+    function ownerUnchanged() {
+      return request.resource.data.get('proposedBy', null) == resource.data.get('proposedBy', null);
+    }
+
+    // A uid-keyed map (votes, interested, rsvps) is a per-person statement,
+    // so a write may only touch the writer's OWN key in it. Without this,
+    // any friend can cast a yes on anyone's behalf — and since 2 yeses
+    // approve a game, one person could manufacture both. diff/affectedKeys
+    // covers adding, changing and removing a key alike, and an update that
+    // doesn't touch the map at all (an ordinary detail edit) affects no
+    // keys, so hasOnly passes on an empty set and the write goes through.
+    //
+    // Wiping the map to empty is the one bulk change that stays allowed:
+    // every lifecycle reset does it (MG.demoteGame, MG.promoteToVote,
+    // MG.demoteToWatchlist all clear votes/interested so a re-vote starts
+    // clean), and those transitions are gated on their own terms above —
+    // demoting needs the proposer or an admin, and promoting off the
+    // watchlist is deliberately open to anyone, same as proposing is.
+    // Clearing can only ever discard statements, never fabricate one. A
+    // map that's absent entirely reads as {} through get(), so the empty
+    // case below covers "never had one" and "just cleared it" alike.
+    function ownVoteOnly(field) {
+      return request.resource.data.get(field, {}).keys().size() == 0 ||
+        request.resource.data.get(field, {}).diff(resource.data.get(field, {}))
+          .affectedKeys().hasOnly([request.auth.uid]);
+    }
+
+    // Approval is a fixed 2-yes threshold (MG.VOTES_TO_APPROVE), and this
+    // is as much of it as security rules can actually express: rules can't
+    // count how many values in a map are `true` (no filtering, no loops),
+    // only how many keys exist. So this enforces the parts that matter
+    // most — the person flipping it to approved must be voting yes
+    // themselves, and at least 2 people must have votes on record, each of
+    // which (per ownVoteOnly) could only have been written from their own
+    // account. Residual gap, stated plainly: someone could approve on
+    // their own yes plus another friend's *no*. Closing that properly
+    // means storing yes votes as their own list so rules can size() it —
+    // a data-model change, deliberately not done for a crew this size.
+    function approvalIsEarned() {
+      return request.resource.data.get('votes', {}).get(request.auth.uid, false) == true &&
+        request.resource.data.get('votes', {}).keys().size() >= 2;
+    }
+
     match /games/{gameId} {
       allow read, create: if isFriend();
-      allow update: if isFriend() && (
-        !isGameArchiveOrDemote() ||
-        request.auth.uid == resource.data.proposedBy.uid ||
-        isAdmin()
-      );
+      allow update: if isFriend() && ownerUnchanged() &&
+        ownVoteOnly('votes') && ownVoteOnly('interested') && (
+          !isGameArchiveOrDemote() ||
+          request.auth.uid == resource.data.proposedBy.uid ||
+          isAdmin()
+        ) && (
+          !(resource.data.status == 'proposed' && request.resource.data.status == 'approved') ||
+          approvalIsEarned() ||
+          isAdmin()
+        );
       // Withdrawing (deleting the doc outright) is only ever proposed by
       // the same "undoes someone else's proposal" logic above.
       allow delete: if isFriend() && (request.auth.uid == resource.data.proposedBy.uid || isAdmin());
@@ -127,8 +195,10 @@ service cloud.firestore {
       allow read, create: if isFriend();
       // RSVPing and editing the date/time/notes stay open to any friend;
       // only cancelling (the one update that sets status to "cancelled")
-      // requires the proposer or an admin, same reasoning as games above.
-      allow update: if isFriend() && (
+      // requires the proposer or an admin, same reasoning as games above —
+      // and, same as games, that only holds because proposedBy is frozen
+      // and an RSVP can only be written under its own author's uid.
+      allow update: if isFriend() && ownerUnchanged() && ownVoteOnly('rsvps') && (
         request.resource.data.status != 'cancelled' ||
         request.auth.uid == resource.data.proposedBy.uid ||
         isAdmin()
@@ -143,10 +213,15 @@ service cloud.firestore {
     // entry's own creator (or an admin, for cleanup) can change or remove
     // it. request.resource.data.uid must match the signed-in user on
     // create, so no one can create an entry claiming to be someone else's.
+    // The uid is pinned on update as well as create — otherwise the owner
+    // of an entry could hand it to someone else by rewriting that field,
+    // and the calendar would show a person as away on someone else's say-so.
     match /unavailability/{entryId} {
       allow read: if isFriend();
       allow create: if isFriend() && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if isFriend() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow update: if isFriend() && (resource.data.uid == request.auth.uid || isAdmin())
+        && request.resource.data.uid == resource.data.uid;
+      allow delete: if isFriend() && (resource.data.uid == request.auth.uid || isAdmin());
     }
   }
 }

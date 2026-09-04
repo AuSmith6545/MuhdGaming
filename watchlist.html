@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <link rel="manifest" href="manifest.json">
+<!-- Warm up the three external hosts every page needs (Firebase SDK, the
+     fonts stylesheet, the font files themselves) so the DNS lookup and TLS
+     handshake overlap with parsing instead of following it. Matters most on
+     a phone, where each round trip is expensive and this is a multi-page
+     app that pays them again on every navigation. -->
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <meta name="theme-color" content="#ff6a1a">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -102,7 +110,7 @@ function renderGrid() {
   grid.querySelectorAll('[data-promote]').forEach((btn) => {
     btn.onclick = () => {
       btn.disabled = true;
-      MG.promoteToVote(btn.dataset.promote).catch((e) => alert(e.message));
+      MG.promoteToVote(btn.dataset.promote).catch((e) => MG.alertModal(e));
     };
   });
   grid.querySelectorAll('[data-edit]').forEach((btn) => {
@@ -112,10 +120,14 @@ function renderGrid() {
     };
   });
   grid.querySelectorAll('[data-remove]').forEach((btn) => {
-    btn.onclick = () => {
-      if (!confirm("Remove this from the watchlist? This can't be undone.")) return;
+    btn.onclick = async () => {
+      const ok = await MG.confirmModal('Remove this from the watchlist?', {
+        detail: "This can't be undone — the game and everything on it goes away.",
+        confirmLabel: 'Remove', danger: true,
+      });
+      if (!ok) return;
       btn.disabled = true;
-      MG.withdrawGame(btn.dataset.remove).catch((e) => alert(e.message));
+      MG.withdrawGame(btn.dataset.remove).catch((e) => MG.alertModal(e));
     };
   });
   MG.initMenus(grid);

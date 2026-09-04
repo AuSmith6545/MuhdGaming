@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <link rel="manifest" href="manifest.json">
+<!-- Warm up the three external hosts every page needs (Firebase SDK, the
+     fonts stylesheet, the font files themselves) so the DNS lookup and TLS
+     handshake overlap with parsing instead of following it. Matters most on
+     a phone, where each round trip is expensive and this is a multi-page
+     app that pays them again on every navigation. -->
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <meta name="theme-color" content="#ff6a1a">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -201,15 +209,24 @@ function renderDashboard() {
         </div>
       `).join('<hr style="border:none; border-top:1px solid var(--line); margin:4px 0;">');
       el.querySelectorAll('[data-rsvp]').forEach((btn) => {
-        btn.onclick = () => { btn.disabled = true; MG.setRsvp(btn.dataset.id, btn.dataset.rsvp).catch((e) => alert(e.message)); };
+        btn.onclick = () => { btn.disabled = true; MG.setRsvp(btn.dataset.id, btn.dataset.rsvp).catch((e) => MG.alertModal(e)); };
       });
     }
   }, widgetError('w-rsvp'));
 
-  // ALMOST APPROVED — proposed games closest to unanimous
-  MG.db.collection('games').where('status', '==', 'proposed').onSnapshot((snap) => {
-    const ranked = snap.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
+  // Both game widgets read from one listener rather than opening a filtered
+  // one each — same collection, two subscriptions, two sets of reads for
+  // data that arrives together anyway. The status split is trivial to do
+  // here in the client.
+  MG.db.collection('games').onSnapshot((snap) => {
+    const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    renderAlmostApproved(all.filter((g) => g.status === 'proposed'));
+    renderRecentlyActive(all.filter((g) => g.status === 'approved'));
+  }, (err) => { widgetError('w-almost')(err); widgetError('w-active')(err); });
+
+  // ALMOST APPROVED — proposed games closest to the approval threshold
+  function renderAlmostApproved(proposed) {
+    const ranked = proposed
       .map((g) => ({ ...g, voteCount: MG.voteCounts(g.votes).yes }))
       .sort((a, b) => b.voteCount - a.voteCount)
       .slice(0, 2);
@@ -228,12 +245,11 @@ function renderDashboard() {
           </a>`;
       }).join('<hr style="border:none; border-top:1px solid var(--line); margin:4px 0;">');
     }
-  }, widgetError('w-almost'));
+  }
 
   // RECENTLY ACTIVE — approved games with the newest milestone/to-do activity
-  MG.db.collection('games').where('status', '==', 'approved').onSnapshot((snap) => {
-    const ranked = snap.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
+  function renderRecentlyActive(approved) {
+    const ranked = approved
       .map((g) => ({ ...g, activityAt: MG.toDate(g.lastActivityAt) || MG.toDate(g.approvedAt) }))
       .filter((g) => g.activityAt)
       .sort((a, b) => b.activityAt - a.activityAt)
@@ -250,7 +266,7 @@ function renderDashboard() {
         </a>
       `).join('<hr style="border:none; border-top:1px solid var(--line); margin:4px 0;">');
     }
-  }, widgetError('w-active'));
+  }
 
   document.getElementById('btn-propose-game').onclick = () => MG.openProposeGameModal();
   document.getElementById('btn-propose-session').onclick = () => MG.openProposeSessionModal();
@@ -295,14 +311,18 @@ function renderDashboard() {
       el.querySelectorAll('[data-approve]').forEach((btn) => {
         btn.onclick = () => {
           btn.disabled = true;
-          MG.approveRequest(btn.dataset.approve, btn.dataset.email, btn.dataset.name).catch((e) => alert(e.message));
+          MG.approveRequest(btn.dataset.approve, btn.dataset.email, btn.dataset.name).catch((e) => MG.alertModal(e));
         };
       });
       el.querySelectorAll('[data-decline]').forEach((btn) => {
-        btn.onclick = () => {
-          if (!confirm('Decline this request?')) return;
+        btn.onclick = async () => {
+          const ok = await MG.confirmModal('Decline this request?', {
+            detail: 'They can ask again later, and they are not told either way.',
+            confirmLabel: 'Decline', danger: true,
+          });
+          if (!ok) return;
           btn.disabled = true;
-          MG.declineRequest(btn.dataset.decline).catch((e) => alert(e.message));
+          MG.declineRequest(btn.dataset.decline).catch((e) => MG.alertModal(e));
         };
       });
     }, widgetError('w-requests-wrap'));

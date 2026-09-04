@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <link rel="manifest" href="manifest.json">
+<!-- Warm up the three external hosts every page needs (Firebase SDK, the
+     fonts stylesheet, the font files themselves) so the DNS lookup and TLS
+     handshake overlap with parsing instead of following it. Matters most on
+     a phone, where each round trip is expensive and this is a multi-page
+     app that pays them again on every navigation. -->
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <meta name="theme-color" content="#ff6a1a">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -200,15 +208,20 @@ function loadGame() {
         toggleBtn.classList.toggle('active-yes', isInterested);
         toggleBtn.onclick = () => {
           toggleBtn.disabled = true;
-          MG.setInterested(gameId, !isInterested).catch((e) => { alert(e.message); toggleBtn.disabled = false; });
+          MG.setInterested(gameId, !isInterested).catch((e) => { MG.alertModal(e); toggleBtn.disabled = false; });
         };
       }
     } else {
       interestPanel.style.display = 'none';
     }
     document.getElementById('banner-glyph').textContent = g.title.slice(0, 2).toUpperCase();
-    document.getElementById('banner').style.background = g.image
-      ? `linear-gradient(0deg, rgba(9,11,13,.55), rgba(9,11,13,.75)), url('${g.image.replace(/'/g, "%27")}') center/cover`
+    // Same http(s)-only check every other stored URL gets (MG.safeUrl) —
+    // the image field is writable by any friend, so it goes through the
+    // same gate as storeUrl rather than only having its quotes escaped.
+    // Falls back to the title's gradient if it isn't a usable URL.
+    const safeImage = MG.safeUrl(g.image);
+    document.getElementById('banner').style.background = safeImage
+      ? `linear-gradient(0deg, rgba(9,11,13,.55), rgba(9,11,13,.75)), url('${safeImage.replace(/'/g, "%27")}') center/cover`
       : MG.coverGradient(g.title);
 
     const tags = [...(g.platforms || []).slice(0, 1), ...(g.genres || []).slice(0, 2),
@@ -275,7 +288,7 @@ function loadGame() {
     list.querySelectorAll('[data-ms]').forEach((btn) => {
       btn.onclick = () => {
         const next = STEP_ORDER[(STEP_ORDER.indexOf(btn.dataset.status) + 1) % STEP_ORDER.length];
-        MG.setMilestoneStatus(gameId, btn.dataset.ms, next).catch((e) => alert(e.message));
+        MG.setMilestoneStatus(gameId, btn.dataset.ms, next).catch((e) => MG.alertModal(e));
       };
     });
   });
@@ -301,7 +314,7 @@ function loadGame() {
         </div>`;
     }).join('');
     list.querySelectorAll('[data-todo]').forEach((btn) => {
-      btn.onclick = () => MG.toggleTodo(gameId, btn.dataset.todo, btn.dataset.done !== 'true').catch((e) => alert(e.message));
+      btn.onclick = () => MG.toggleTodo(gameId, btn.dataset.todo, btn.dataset.done !== 'true').catch((e) => MG.alertModal(e));
     });
   });
 
@@ -353,32 +366,40 @@ function loadGame() {
     e.preventDefault();
     const input = document.getElementById('milestone-input');
     if (!input.value.trim()) return;
-    MG.addMilestone(gameId, input.value.trim()).catch((err) => alert(err.message));
+    MG.addMilestone(gameId, input.value.trim()).catch((err) => MG.alertModal(err));
     input.value = '';
   };
   document.getElementById('todo-form').onsubmit = (e) => {
     e.preventDefault();
     const input = document.getElementById('todo-input');
     if (!input.value.trim()) return;
-    MG.addTodo(gameId, input.value.trim()).catch((err) => alert(err.message));
+    MG.addTodo(gameId, input.value.trim()).catch((err) => MG.alertModal(err));
     input.value = '';
   };
   document.getElementById('note-form').onsubmit = (e) => {
     e.preventDefault();
     const input = document.getElementById('note-input');
     if (!input.value.trim()) return;
-    MG.addNote(gameId, input.value.trim()).catch((err) => alert(err.message));
+    MG.addNote(gameId, input.value.trim()).catch((err) => MG.alertModal(err));
     input.value = '';
   };
 
   document.getElementById('btn-edit-game').onclick = () => { if (currentGame) MG.openGameFormModal(currentGame); };
-  document.getElementById('btn-demote-game').onclick = () => {
-    if (!confirm('Move this back up for a fresh vote? Existing votes will be cleared.')) return;
-    MG.demoteGame(gameId).then(() => { location.href = 'games.html'; }).catch((e) => alert(e.message));
+  document.getElementById('btn-demote-game').onclick = async () => {
+    const ok = await MG.confirmModal('Move this back up for a fresh vote?', {
+      detail: 'Existing votes and interest are cleared so the crew decides again. Milestones, to-dos and notes are kept.',
+      confirmLabel: 'Move to a vote',
+    });
+    if (!ok) return;
+    MG.demoteGame(gameId).then(() => { location.href = 'games.html'; }).catch((e) => MG.alertModal(e));
   };
-  document.getElementById('btn-archive-game').onclick = () => {
-    if (!confirm('Archive this game? It will drop off the Games library.')) return;
-    MG.archiveGame(gameId).then(() => { location.href = 'games.html'; }).catch((e) => alert(e.message));
+  document.getElementById('btn-archive-game').onclick = async () => {
+    const ok = await MG.confirmModal('Archive this game?', {
+      detail: 'It drops off the Games library, but keeps its history — you can bring it back with a fresh vote later.',
+      confirmLabel: 'Archive', danger: true,
+    });
+    if (!ok) return;
+    MG.archiveGame(gameId).then(() => { location.href = 'games.html'; }).catch((e) => MG.alertModal(e));
   };
   MG.initMenus();
 }

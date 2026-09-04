@@ -199,6 +199,12 @@ button{ font: inherit; }
 .btn-primary:disabled{ opacity:.5; cursor:not-allowed; filter:none; }
 .btn-ghost{ border-color:var(--line-bright); color:var(--ink-strong); }
 .btn-ghost:hover{ border-color:#fff; color:#fff; }
+/* Destructive confirm (see MG.confirmModal) — deliberately not btn-primary:
+   an irreversible "Withdraw" shouldn't wear the same glowing accent as the
+   safe, encouraged action everywhere else in the app. Same warning tone the
+   overflow menus already use for these. */
+.btn-danger{ border-color:#ff8a6a; color:#ff8a6a; }
+.btn-danger:hover{ border-color:#ffb9a5; color:#ffb9a5; background:color-mix(in srgb, #ff8a6a 12%, transparent); }
 .btn-sm{ padding:8px 14px; font-size:12px; }
 
 .rsvp-btn,.toggle{ font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; padding:8px 10px; border:1px solid var(--line-bright); color:var(--ink); background:transparent; cursor:pointer; clip-path: polygon(6px 0,100% 0,100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px); }

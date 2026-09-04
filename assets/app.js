@@ -493,11 +493,21 @@ MG.ready = function (activePage, onReady) {
       // the users snapshot just below is fetched.
       await MG.db.collection('users').doc(user.uid).set({ email: user.email }, { merge: true });
 
-      const friendsSnap = await MG.db.collection('friends').get();
+      // These two used to be awaited one after the other, which put three
+      // sequential round trips (the stamp above, then friends, then users)
+      // in front of the first pixel of every page — on a phone, on a weak
+      // signal, that's the slowest thing between tapping the icon and
+      // seeing anything. They don't depend on each other, so they go
+      // together and cost one trip instead of two. The users read is the
+      // heavier of the pair: profile docs carry base64 avatars, so it
+      // grows with the crew.
+      const [friendsSnap, usersSnap] = await Promise.all([
+        MG.db.collection('friends').get(),
+        MG.db.collection('users').get(),
+      ]);
       MG.friends = friendsSnap.docs.map(d => ({ email: d.id, ...d.data() }));
       MG.friendCount = MG.friends.length;
 
-      const usersSnap = await MG.db.collection('users').get();
       MG.userProfiles = {};
       usersSnap.docs.forEach((d) => { MG.userProfiles[d.id] = d.data(); });
 
@@ -579,6 +589,18 @@ MG.initPullToRefresh = function () {
   document.addEventListener('touchcancel', endDrag);
 };
 MG.initPullToRefresh();
+
+// Registers the service worker that caches the app shell (see sw.js for
+// what it does and does not cache — live Firestore data is never cached).
+// Deliberately waits for load: registration is a background nicety and has
+// no business competing with the first paint for bandwidth. A failure here
+// is silent on purpose — the site works exactly as before without it, so
+// there's nothing a friend could usefully do about an error message.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
 
 /* ---------- writes: games / watchlist / recommendations ---------- */
 
@@ -1047,6 +1069,58 @@ MG.openModal = function (innerHtml) {
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) MG.closeModal(); });
   document.body.appendChild(backdrop);
   return backdrop;
+};
+
+// Stand-ins for the browser's own confirm()/alert(), built on the modal
+// above. Worth the swap for two reasons: in an installed Home Screen app
+// the native dialogs are headed "muhdgaming.github.io says…", which is the
+// one place the app stops looking like an app; and a native confirm() for
+// something irreversible (withdrawing a game, cancelling a session) is the
+// least considered UI in a site that otherwise sweats its details.
+//
+// Both return a promise rather than blocking the way the native pair does,
+// so callers await the answer instead of branching on it inline.
+MG.confirmModal = function (message, options) {
+  const opts = options || {};
+  const confirmLabel = opts.confirmLabel || 'Confirm';
+  return new Promise((resolve) => {
+    const modal = MG.openModal(`
+      <div class="eyebrow">${MG.escapeHtml(opts.eyebrow || 'Confirm')}</div>
+      <h2 style="font-size:21px; margin-top:10px;">${MG.escapeHtml(message)}</h2>
+      ${opts.detail ? `<p style="margin-top:12px; color:var(--ink-dim);">${MG.escapeHtml(opts.detail)}</p>` : ''}
+      <div class="row" style="justify-content:flex-end; margin-top:22px; gap:8px;">
+        <button class="btn btn-ghost" type="button" id="mg-confirm-no">Cancel</button>
+        <button class="btn ${opts.danger ? 'btn-danger' : 'btn-primary'}" type="button" id="mg-confirm-yes">${MG.escapeHtml(confirmLabel)}</button>
+      </div>
+    `);
+    // Dismissing by clicking the backdrop counts as "no" — same as hitting
+    // Escape on a native dialog. Resolve is idempotent, so whichever of
+    // these fires first wins and the rest are harmless.
+    const done = (answer) => { MG.closeModal(); resolve(answer); };
+    modal.querySelector('#mg-confirm-yes').onclick = () => done(true);
+    modal.querySelector('#mg-confirm-no').onclick = () => done(false);
+    modal.addEventListener('click', (e) => { if (e.target === modal) resolve(false); });
+    modal.querySelector('#mg-confirm-yes').focus();
+  });
+};
+
+// The error-shaped half of the pair. Takes an Error or a string, so it can
+// be dropped straight into a .catch().
+MG.alertModal = function (err) {
+  const message = (err && err.message) || String(err);
+  return new Promise((resolve) => {
+    const modal = MG.openModal(`
+      <div class="eyebrow">That didn't work</div>
+      <p style="margin-top:14px; color:var(--ink-strong); font-size:15px;">${MG.escapeHtml(message)}</p>
+      <div class="row" style="justify-content:flex-end; margin-top:22px;">
+        <button class="btn btn-primary" type="button" id="mg-alert-ok">OK</button>
+      </div>
+    `);
+    const done = () => { MG.closeModal(); resolve(); };
+    modal.querySelector('#mg-alert-ok').onclick = done;
+    modal.addEventListener('click', (e) => { if (e.target === modal) resolve(); });
+    modal.querySelector('#mg-alert-ok').focus();
+  });
 };
 
 // Shared by "Propose a Game" (existing = null) and "Edit Game"
