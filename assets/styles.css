@@ -17,14 +17,14 @@
    away from its own box and exposing raw white behind it when scrolling
    past the end of a short page. */
 html,body{ margin:0; min-height:100%; min-height:100dvh; overscroll-behavior-y:none; }
-/* body::before/::after are the fix for iOS's status-bar and home-indicator
-   strips (see below) — sharing this exact background declaration with body
-   itself (and html: a safety net for any sliver of it that ends up peeking
-   out past body's own box, which is what the persistent white bar at the
-   bottom of some pages turned out to be), all pinned via
-   background-attachment:fixed, is what makes them paint as one continuous
-   backdrop instead of visibly different fills. */
-html, body, body::before, body::after{
+/* body::before is the fix for iOS's status-bar/notch strip (see below) —
+   sharing this exact background declaration with body itself (and html: a
+   safety net for any sliver of it that ends up peeking out past body's own
+   box, which is what the persistent white bar at the bottom of some pages
+   turned out to be), all pinned via background-attachment:fixed, is what
+   makes them paint as one continuous backdrop instead of visibly different
+   fills. */
+html, body, body::before{
   background:
     radial-gradient(900px 520px at 6% -8%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%),
     radial-gradient(800px 560px at 100% 105%, rgba(130,175,225,0.07), transparent 62%),
@@ -39,6 +39,18 @@ body{
      out hidden underneath it. Kept in sync with .mg-nav's own height
      and body::before's own height, both below. */
   padding-top:calc(64px + env(safe-area-inset-top));
+  /* The home-indicator strip used to be covered by a body::after twin of
+     the fill below — a fixed, opaque bar pinned over the bottom edge.
+     That was a band-aid for real content underneath actually being an
+     unpainted white gap; now that html/body's own background (above)
+     covers that properly, a fixed bar just permanently hides whatever
+     real content scrolls up into that strip instead. Padding is the
+     correct fix: it reserves the same space as part of the page's own
+     flow, so content scrolls all the way to the true bottom edge and
+     simply stops with this much breathing room past it, still clear of
+     the home-indicator gesture zone. Zero-height no-op anywhere without
+     that inset (desktop, most Android). */
+  padding-bottom:env(safe-area-inset-bottom);
 }
 /* Static fill for the iOS status-bar/notch strip on an installed
    (standalone) PWA — a plain CSS pseudo-element rather than a real DOM
@@ -52,16 +64,6 @@ body{
 body::before{
   content:""; position:fixed; top:0; left:0; right:0; z-index:45;
   height:env(safe-area-inset-top); pointer-events:none;
-}
-/* Same fix, bottom edge — the strip iOS reserves for the home-indicator
-   swipe gesture (and, outside standalone mode, Safari's own bottom
-   toolbar). No page content is ever meant to sit fixed down there, so
-   this is paint-only, same as ::before. env(safe-area-inset-bottom) is
-   0 on anything without that reserved strip, so a zero-height no-op
-   there too. */
-body::after{
-  content:""; position:fixed; bottom:0; left:0; right:0; z-index:45;
-  height:env(safe-area-inset-bottom); pointer-events:none;
 }
 h1,h2,h3{ font-family:'Rajdhani',sans-serif; font-weight:700; margin:0; color:var(--ink-strong); text-wrap:balance; }
 a{ color:var(--accent); }
@@ -136,6 +138,24 @@ a:hover{ color:#fff; }
 .mg-nav-panel{ display:flex; align-items:center; flex:1; min-width:0; margin-left:40px; }
 .mg-nav .links{ display:flex; gap:28px; flex-wrap:wrap; }
 .mg-nav-info{ margin-left:auto; flex-shrink:0; }
+
+/* Drag-to-refresh pill — see MG.initPullToRefresh. Sits just under the nav
+   (same top offset logic as .mg-nav itself: env(safe-area-inset-top) first,
+   then clear of the 64px bar), hidden above its own position until a pull
+   is in progress, tracking the drag 1:1 via a JS-set transform rather than
+   any CSS transition (a transition would fight the constant per-frame
+   updates while dragging — see the function for where the settle/reset
+   animation actually comes from instead). */
+#mg-pull-refresh{
+  position:fixed; top:calc(64px + env(safe-area-inset-top)); left:50%; z-index:44;
+  transform:translate(-50%,-100%); opacity:0; pointer-events:none;
+  background:linear-gradient(155deg, #161c22 0%, #0f1317 100%);
+  border:1px solid var(--line-bright); color:var(--ink-strong);
+  font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+  padding:7px 16px; margin-top:10px;
+  clip-path: polygon(6px 0,100% 0,100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+}
+#mg-pull-refresh.armed{ border-color:var(--accent); color:var(--accent); }
 .nav-link{ font-family:'Rajdhani',sans-serif; font-weight:600; font-size:14px; text-transform:uppercase; letter-spacing:.07em; color:var(--ink-dim); text-decoration:none; padding-bottom:6px; border-bottom:2px solid transparent; }
 .nav-link.active{ color:#fff; border-bottom-color:#fff; text-shadow:0 0 14px rgba(255,255,255,.75); }
 .nav-link:hover{ color:var(--ink-strong); }
@@ -189,7 +209,6 @@ button{ font: inherit; }
 .seg-bar{ display:flex; gap:3px; }
 .seg{ flex:1; height:7px; background:var(--line); }
 .seg.on{ background:linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 70%, #fff 10%)); box-shadow:0 0 8px -1px var(--accent); }
-.seg.off-no{ background:color-mix(in srgb, #ff8a6a 55%, var(--line) 45%); }
 
 .field{ display:flex; flex-direction:column; gap:6px; }
 .field label{ font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-dim); }

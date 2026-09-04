@@ -113,13 +113,20 @@ MG.voteCounts = function (votes) {
   };
 };
 
-// Renders the friend-count progress bar used on recommendation cards and
-// the dashboard: filled segments for yes votes, dim red segments for
-// explicit no votes, empty for anyone who hasn't voted yet.
-MG.segBarHtml = function (votes, friendCount) {
-  const { yes, no } = MG.voteCounts(votes);
-  return Array.from({ length: friendCount || 1 }, (_, i) =>
-    `<div class="seg${i < yes ? ' on' : i < yes + no ? ' off-no' : ''}"></div>`
+// Renders the approval progress bar used on recommendation cards and the
+// dashboard: MG.VOTES_TO_APPROVE segments, filled left-to-right as yes
+// votes come in. Sized to the actual threshold rather than the whole
+// crew on purpose — with only 2 needed, a bar sized to friendCount would
+// sit almost empty right up until the moment it flips to approved and
+// disappears from this list, making a game one vote away read as "barely
+// started". No votes aren't shown here; that context lives in the mono
+// tally line next to it instead. Math.min guards against ever rendering
+// more filled segments than exist if this paints mid-transaction, between
+// a vote landing and the resulting "approved" status catching up.
+MG.approvalBarHtml = function (votes) {
+  const yes = Math.min(MG.voteCounts(votes).yes, MG.VOTES_TO_APPROVE);
+  return Array.from({ length: MG.VOTES_TO_APPROVE }, (_, i) =>
+    `<div class="seg${i < yes ? ' on' : ''}"></div>`
   ).join('');
 };
 
@@ -325,6 +332,15 @@ function showGate(state, message) {
   const main = document.getElementById('mg-main');
   if (!gate) return;
 
+  // A stuck "loading" state used to just hang there forever — the sign-in
+  // check is a couple of chained Firestore reads, and on iOS a connection
+  // that went stale while the phone was asleep can leave one of those
+  // reads neither resolving nor rejecting for a long time. Whatever other
+  // state we're moving to (including a fresh "loading"), clear any pending
+  // timer from a previous one first so it can't fire late and stomp on
+  // content that's since loaded fine.
+  clearTimeout(MG._loadingTimer);
+
   if (state === 'ready') {
     gate.hidden = true;
     if (main) main.hidden = false;
@@ -336,6 +352,18 @@ function showGate(state, message) {
   if (state === 'loading') {
     gate.className = 'loading';
     gate.textContent = 'Loading…';
+    MG._loadingTimer = setTimeout(() => {
+      // Only replace it if we're still on this exact loading screen — if
+      // sign-in resolved (to any state) in the meantime this never fires,
+      // since the state change above already cleared it.
+      gate.className = 'empty-state';
+      gate.innerHTML = `
+        <p style="color:var(--ink-strong); font-size:16px;">This is taking longer than it should.</p>
+        <p style="margin-top:8px;">Your connection may have gone stale — try reloading, or drag down from the top of the screen.</p>
+        <button id="mg-reload" class="btn btn-primary" style="margin-top:16px;">Reload</button>
+      `;
+      document.getElementById('mg-reload').onclick = () => location.reload();
+    }, 8000);
   } else if (state === 'signed-out') {
     gate.className = 'empty-state';
     gate.innerHTML = `
@@ -482,6 +510,75 @@ MG.ready = function (activePage, onReady) {
     }
   });
 };
+
+/* ---------- drag-to-refresh ---------- */
+
+// A Home Screen install has no browser chrome, so it also has none of
+// Mobile Safari's native pull-to-refresh — that gesture is a Safari-tab
+// feature, not something WebKit gives a standalone web app for free. This
+// is a minimal from-scratch stand-in: drag down from the very top of the
+// page and past a threshold, release, and it reloads. Deliberately wired
+// up unconditionally at load — not gated behind sign-in — so it's still
+// available as an escape hatch even while the loading gate itself is the
+// thing that's stuck (see showGate's own loading-timeout for the other
+// half of that fix).
+MG.initPullToRefresh = function () {
+  const THRESHOLD = 70;
+  let startY = 0, dragY = 0, dragging = false, refreshing = false;
+
+  const pill = document.createElement('div');
+  pill.id = 'mg-pull-refresh';
+  document.body.appendChild(pill);
+
+  // A drawer/modal/menu open over the page has its own scrolling and its
+  // own reason to be dragged on — this stays out of the way of all of them
+  // rather than trying to reload the app out from under an open one.
+  function overlayOpen() {
+    return !!document.querySelector(
+      '#mg-modal-backdrop, .side-drawer.open, .side-drawer-backdrop.open, .menu-panel.open, #mg-nav-panel.open, #cal-detail-backdrop.open'
+    );
+  }
+
+  function setDrag(px) {
+    dragY = px;
+    pill.style.opacity = px > 4 ? '1' : '0';
+    pill.style.transform = `translate(-50%, ${Math.min(px, THRESHOLD + 30) - 10}px)`;
+    pill.classList.toggle('armed', px > THRESHOLD);
+    pill.textContent = refreshing ? 'REFRESHING…' : px > THRESHOLD ? 'RELEASE TO REFRESH' : 'PULL TO REFRESH';
+  }
+
+  // passive:true throughout — this never calls preventDefault, so it never
+  // fights the page's own scrolling. It only ever reads the same finger
+  // movement scrolling would, and only acts on it when there was nowhere
+  // left to scroll to begin with (scrollY 0, dragging down from there).
+  document.addEventListener('touchstart', (e) => {
+    if (refreshing || dragging || overlayOpen() || window.scrollY > 0 || e.touches.length !== 1) return;
+    startY = e.touches[0].clientY;
+    dragging = true;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (e) => {
+    if (!dragging || refreshing) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy <= 0 || window.scrollY > 0) { dragging = false; setDrag(0); return; }
+    setDrag(dy * 0.5); // resistance — a 1:1 drag felt too twitchy to aim
+  }, { passive: true });
+
+  function endDrag() {
+    if (!dragging) return;
+    dragging = false;
+    if (dragY > THRESHOLD) {
+      refreshing = true;
+      setDrag(THRESHOLD);
+      location.reload();
+    } else {
+      setDrag(0);
+    }
+  }
+  document.addEventListener('touchend', endDrag);
+  document.addEventListener('touchcancel', endDrag);
+};
+MG.initPullToRefresh();
 
 /* ---------- writes: games / watchlist / recommendations ---------- */
 

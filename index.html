@@ -219,7 +219,7 @@ function renderDashboard() {
       el.innerHTML = `<p style="color:var(--ink-dim); font-size:13px;">No recommendations up for a vote.</p>`;
     } else {
       el.innerHTML = ranked.map((g) => {
-        const segs = MG.segBarHtml(g.votes, MG.friendCount);
+        const segs = MG.approvalBarHtml(g.votes);
         return `
           <a href="games.html" style="text-decoration:none; display:block;">
             <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:17px; color:var(--ink-strong);">${MG.escapeHtml(g.title)}</div>

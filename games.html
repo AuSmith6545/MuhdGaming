@@ -196,7 +196,7 @@ function renderRecCard(g) {
   const myVote = g.votes && g.votes[MG.user.uid];
   const isYes = myVote === true;
   const isNo = myVote === false;
-  const segs = MG.segBarHtml(g.votes, MG.friendCount);
+  const segs = MG.approvalBarHtml(g.votes);
   const canManage = (g.proposedBy && g.proposedBy.uid) === MG.user.uid || MG.isAdmin;
   const tags = (g.genres || []).slice(0, 2).map((t) => `<span class="chip">${MG.escapeHtml(t)}</span>`).join('');
   const facts = [g.price, g.releaseDate].filter(Boolean).map((t) => `<span class="chip chip-accent">${MG.escapeHtml(t)}</span>`).join('');
