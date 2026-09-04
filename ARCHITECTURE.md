@@ -28,17 +28,22 @@ games (collection)
      re-entered as an idea moves through the lifecycle:
        watchlist  → proposed   MG.promoteToVote     (open to any friend)
        proposed   → watchlist  MG.demoteToWatchlist  (proposer/admin only)
-       proposed   → approved   unanimous yes (MG.setVote, auto)
+       proposed   → approved   MG.VOTES_TO_APPROVE (2) yes votes (MG.setVote, auto)
        approved   → proposed   MG.demoteGame         (proposer/admin only)
        approved   → archived   MG.archiveGame        (proposer/admin only)
      "watchlist" doesn't get its own vote UI — it's a flat, no-pressure list
      (Watchlist page) for things worth remembering that aren't ready for a
-     vote yet. A "proposed" game where every friend has voted but it didn't
-     reach unanimous yes is a dead end without a status of its own: the
-     Games page's Recommendations tab detects that case client-side
-     (yes+no >= friendCount) and swaps its Yes/No buttons for
-     Remove/Move-to-Watchlist instead),
+     vote yet. A "proposed" game where every friend has voted but never
+     reached MG.VOTES_TO_APPROVE yeses is a dead end without a status of its
+     own: the Games page's Recommendations tab detects that case client-side
+     (yes < VOTES_TO_APPROVE && yes+no >= friendCount) and swaps its Yes/No
+     buttons for Remove/Move-to-Watchlist instead. Approval deliberately
+     doesn't require every friend to vote — 2 yeses is enough to greenlight
+     planning, and anyone who never voted can tag themselves "interested"
+     afterwards (MG.setInterested) instead of casting a now-unnecessary vote,
      proposedBy {uid, name}, proposedAt, votes ({uid: true}),
+     interested ({uid: {name, photoURL}} — only meaningful once approved,
+     cleared alongside votes whenever a game goes back up for a vote),
      approvedAt, lastActivityAt (bumped on any milestone/todo write — this is
      what powers the Dashboard's "Recently Active" widget without a
      collection-group query)

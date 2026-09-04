@@ -24,6 +24,7 @@ const MG = {
   isAdmin: false,
   userProfiles: {}, // uid -> {displayName, photoDataUrl}, see MG.resolveName/resolveAvatar
   STEAM_PROXY: 'https://muhdgaming-steam-proxy.ausmithdesign.workers.dev',
+  VOTES_TO_APPROVE: 2, // yes votes needed to auto-approve a recommendation — see MG.setVote
 };
 window.MG = MG;
 
@@ -120,6 +121,22 @@ MG.segBarHtml = function (votes, friendCount) {
   return Array.from({ length: friendCount || 1 }, (_, i) =>
     `<div class="seg${i < yes ? ' on' : i < yes + no ? ' off-no' : ''}"></div>`
   ).join('');
+};
+
+// interested: { [uid]: {name, photoURL} } — set by MG.setInterested, only
+// ever meaningful once a game is approved.
+MG.interestedCount = function (interested) {
+  return Object.keys(interested || {}).length;
+};
+
+// Distinct friends who are "in" on an approved game: yes-voters plus anyone
+// who's since tagged themselves interested. Kept as a Set rather than a
+// simple sum — the UI only offers the interested toggle to non-yes-voters,
+// but this stays correct even so (and if that ever changes).
+MG.interestedTotal = function (votes, interested) {
+  const uids = new Set(Object.keys(votes || {}).filter((uid) => votes[uid] === true));
+  Object.keys(interested || {}).forEach((uid) => uids.add(uid));
+  return uids.size;
 };
 
 MG.avatarHtml = function (name, photoURL, size) {
@@ -487,6 +504,7 @@ MG.proposeGame = async function (fields) {
     proposedBy: { uid, name: MG.user.displayName },
     proposedAt: firebase.firestore.FieldValue.serverTimestamp(),
     votes: {},
+    interested: {},
   };
   const ref = await MG.db.collection('games').add(doc);
   return ref.id;
@@ -515,6 +533,7 @@ MG.addToWatchlist = async function (fields) {
     proposedBy: { uid, name: MG.user.displayName },
     proposedAt: firebase.firestore.FieldValue.serverTimestamp(),
     votes: {},
+    interested: {},
   };
   const ref = await MG.db.collection('games').add(doc);
   return ref.id;
@@ -527,21 +546,23 @@ MG.promoteToVote = async function (gameId) {
   await MG.db.collection('games').doc(gameId).update({
     status: 'proposed',
     votes: {},
+    interested: {},
     proposedAt: firebase.firestore.FieldValue.serverTimestamp(),
     lastActivityAt: firebase.firestore.FieldValue.serverTimestamp(),
   });
 };
 
 // Shelves an in-progress vote back to the Watchlist — for an idea that
-// isn't gaining traction, or one that finished a full vote without
-// reaching unanimous yes. Unlike promoting, this DOES undo an active
+// isn't gaining traction, or one that finished a full vote without reaching
+// MG.VOTES_TO_APPROVE yeses. Unlike promoting, this DOES undo an active
 // proposal, so firestore.rules restricts it to the proposer or an admin,
-// same as archiving/demoting a game. Clears votes so a future re-promote
-// starts clean.
+// same as archiving/demoting a game. Clears votes/interested so a future
+// re-promote starts clean.
 MG.demoteToWatchlist = async function (gameId) {
   await MG.db.collection('games').doc(gameId).update({
     status: 'watchlist',
     votes: {},
+    interested: {},
     lastActivityAt: firebase.firestore.FieldValue.serverTimestamp(),
   });
 };
@@ -583,13 +604,14 @@ MG.withdrawGame = async function (gameId) {
   await gameRef.delete();
 };
 
-// Sends an approved game back to a fresh vote — clears the old votes so
-// the crew re-decides from scratch. Milestones/todos/notes are left
-// untouched so nothing is lost if it gets re-approved later.
+// Sends an approved game back to a fresh vote — clears the old votes and
+// interested tags so the crew re-decides from scratch. Milestones/todos/notes
+// are left untouched so nothing is lost if it gets re-approved later.
 MG.demoteGame = async function (gameId) {
   await MG.db.collection('games').doc(gameId).update({
     status: 'proposed',
     votes: {},
+    interested: {},
     lastActivityAt: firebase.firestore.FieldValue.serverTimestamp(),
   });
 };
@@ -604,20 +626,17 @@ MG.archiveGame = async function (gameId) {
 };
 
 // Sets (or clears, if you click your current choice again) the current
-// friend's yes/no vote; auto-approves the moment every friend in the crew
-// has voted yes specifically — a "no" counts the same as not having voted
+// friend's yes/no vote; auto-approves the moment MG.VOTES_TO_APPROVE friends
+// have voted yes specifically — a "no" counts the same as not having voted
 // yet for approval purposes, it just makes the disagreement visible instead
-// of silent. Wrapped in a transaction so two friends voting at once can't
-// both think they cast the deciding vote. The friend count is re-read fresh
-// right before the transaction (rather than the possibly-stale
-// MG.friendCount cached at sign-in) — it can't be read *inside* the
-// transaction itself, because Firestore's web SDK only allows a transaction
-// to read individual documents, not a whole collection/query.
+// of silent. Two friends agreeing is enough to greenlight planning; nobody
+// else has to vote at all — once approved, MG.setInterested lets anyone who
+// didn't vote flag themselves as in without reopening the vote. Wrapped in a
+// transaction so two friends voting at once can't both think they cast the
+// deciding vote.
 MG.setVote = async function (gameId, choice) {
   const uid = MG.user.uid;
   const ref = MG.db.collection('games').doc(gameId);
-  const friendsSnap = await MG.db.collection('friends').get();
-  const friendCount = friendsSnap.size;
 
   await MG.db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
@@ -628,12 +647,37 @@ MG.setVote = async function (gameId, choice) {
 
     const update = { votes };
     const yesCount = Object.values(votes).filter((v) => v === true).length;
-    if (data.status === 'proposed' && friendCount > 0 && yesCount >= friendCount) {
+    if (data.status === 'proposed' && yesCount >= MG.VOTES_TO_APPROVE) {
       update.status = 'approved';
       update.approvedAt = firebase.firestore.FieldValue.serverTimestamp();
       update.lastActivityAt = firebase.firestore.FieldValue.serverTimestamp();
     }
     tx.update(ref, update);
+  });
+};
+
+// Lets a friend who didn't vote (or voted no) flag themselves "interested"
+// on an already-approved game — visible to whoever's planning a session,
+// without reopening a vote that's no longer necessary once 2 friends have
+// said yes. Toggles like setVote's choice does: clicking again clears it.
+// Name/photo are frozen in alongside the uid for the same reason rsvps does
+// it — `friends` is keyed by email, not uid, so there's no other way to
+// resolve whose interest is whose when rendering the list.
+MG.setInterested = async function (gameId, interested) {
+  const uid = MG.user.uid;
+  const ref = MG.db.collection('games').doc(gameId);
+
+  await MG.db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const data = snap.data();
+    const map = Object.assign({}, data.interested || {});
+    if (interested) {
+      map[uid] = { name: MG.user.displayName, photoURL: MG.user.photoURL || null };
+    } else {
+      delete map[uid];
+    }
+    tx.update(ref, { interested: map });
   });
 };
 

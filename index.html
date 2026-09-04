@@ -223,7 +223,7 @@ function renderDashboard() {
         return `
           <a href="games.html" style="text-decoration:none; display:block;">
             <div style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:17px; color:var(--ink-strong);">${MG.escapeHtml(g.title)}</div>
-            <div class="mono" style="font-size:11px; color:var(--ink-dim); margin-top:5px;">${g.voteCount} OF ${MG.friendCount} FRIENDS</div>
+            <div class="mono" style="font-size:11px; color:var(--ink-dim); margin-top:5px;">${g.voteCount} OF ${MG.VOTES_TO_APPROVE} YES NEEDED</div>
             <div class="seg-bar" style="margin-top:8px;">${segs}</div>
           </a>`;
       }).join('<hr style="border:none; border-top:1px solid var(--line); margin:4px 0;">');
