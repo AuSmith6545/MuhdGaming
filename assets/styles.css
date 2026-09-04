@@ -9,12 +9,22 @@
 }
 
 *{ box-sizing:border-box; }
-html,body{ margin:0; min-height:100%; }
+/* min-height:100dvh (falls back to plain % on anything that doesn't parse
+   dvh) plus overscroll-behavior are both iOS-PWA fixes: dvh is a more
+   reliable full-viewport height than % in a Home Screen install, and
+   overscroll-behavior:none stops the native elastic bounce at the top/
+   bottom of the page — the exact thing that was dragging the rendered page
+   away from its own box and exposing raw white behind it when scrolling
+   past the end of a short page. */
+html,body{ margin:0; min-height:100%; min-height:100dvh; overscroll-behavior-y:none; }
 /* body::before/::after are the fix for iOS's status-bar and home-indicator
    strips (see below) — sharing this exact background declaration with body
-   itself, all pinned via background-attachment:fixed, is what makes them
-   paint as one continuous backdrop instead of visibly different fills. */
-body, body::before, body::after{
+   itself (and html: a safety net for any sliver of it that ends up peeking
+   out past body's own box, which is what the persistent white bar at the
+   bottom of some pages turned out to be), all pinned via
+   background-attachment:fixed, is what makes them paint as one continuous
+   backdrop instead of visibly different fills. */
+html, body, body::before, body::after{
   background:
     radial-gradient(900px 520px at 6% -8%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%),
     radial-gradient(800px 560px at 100% 105%, rgba(130,175,225,0.07), transparent 62%),
