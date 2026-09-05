@@ -126,14 +126,21 @@ function renderMonth() {
   const cells = buildMonthCells(monthCursor);
   const headHtml = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map((d) => `<div class="cal-head mono">${d}</div>`).join('');
 
+  // Compared as a local calendar date (MG.toISODate), not by timestamp —
+  // "today" is a day on a wall calendar, and a UTC-based comparison would
+  // land on the wrong cell for part of every day depending on timezone.
+  const todayIso = MG.toISODate(new Date());
+
   const cellsHtml = cells.map((date) => {
+    const iso = MG.toISODate(date);
+    const isToday = iso === todayIso;
     const daySessions = allSessions.filter((s) => s.when && sameDay(s.when, date));
     const evHtml = daySessions.map((s) => `
       <a href="#" class="ev ${s.status === 'accepted' ? 'ev-accepted' : 'ev-proposed'}" data-select="${s.id}">
         ${MG.escapeHtml(s.gameTitle.slice(0, 10))} · ${s.when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
       </a>`).join('');
-    const away = MG.awayNamesOn(MG.toISODate(date), allUnavailability);
-    return `<div class="cal-day${date.getMonth() !== monthCursor.getMonth() ? ' other-month' : ''}" data-date="${MG.toISODate(date)}">
+    const away = MG.awayNamesOn(iso, allUnavailability);
+    return `<div class="cal-day${date.getMonth() !== monthCursor.getMonth() ? ' other-month' : ''}${isToday ? ' is-today' : ''}" data-date="${iso}"${isToday ? ' aria-current="date"' : ''}>
       <div class="row" style="justify-content:space-between; align-items:flex-start;">
         <span class="day-num">${date.getDate()}</span>
         ${away.length ? `<span class="away-dot" title="${MG.escapeHtml(away.join(', '))} away">●</span>` : ''}

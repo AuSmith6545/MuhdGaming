@@ -17,14 +17,21 @@
    away from its own box and exposing raw white behind it when scrolling
    past the end of a short page. */
 html,body{ margin:0; min-height:100%; min-height:100dvh; overscroll-behavior-y:none; }
-/* body::before is the fix for iOS's status-bar/notch strip (see below) —
-   sharing this exact background declaration with body itself (and html: a
-   safety net for any sliver of it that ends up peeking out past body's own
-   box, which is what the persistent white bar at the bottom of some pages
-   turned out to be), all pinned via background-attachment:fixed, is what
-   makes them paint as one continuous backdrop instead of visibly different
-   fills. */
-html, body, body::before{
+/* The page's backdrop lives on <html>, which is the strongest place to put
+   it: a background on the root element is propagated to the canvas, and the
+   canvas is painted across the whole viewport no matter what the document
+   inside it is doing — shorter than the screen, rubber-banding, or (since
+   drag-to-refresh) translated bodily downward. That's what closed the iOS
+   white-bar bug, and it's why pulling the page down opens onto a painted
+   strip rather than a hole.
+   <body> deliberately does NOT repeat it. It used to, as a belt-and-braces
+   second copy, but the canvas already guarantees coverage — and once the
+   page could slide, a second identical gradient moving against the fixed
+   one showed up as a faint doubling of the glow. One layer, no seam.
+   body::before keeps its own copy because it isn't a backdrop: it's an
+   opaque cover for the notch strip (see below), and it has to look like
+   the same surface it's covering. */
+html, body::before{
   background:
     radial-gradient(900px 520px at 6% -8%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%),
     radial-gradient(800px 560px at 100% 105%, rgba(130,175,225,0.07), transparent 62%),
@@ -42,8 +49,8 @@ body{
   /* The home-indicator strip used to be covered by a body::after twin of
      the fill below — a fixed, opaque bar pinned over the bottom edge.
      That was a band-aid for real content underneath actually being an
-     unpainted white gap; now that html/body's own background (above)
-     covers that properly, a fixed bar just permanently hides whatever
+     unpainted white gap; now that the canvas background (above) covers
+     that properly, a fixed bar just permanently hides whatever
      real content scrolls up into that strip instead. Padding is the
      correct fix: it reserves the same space as part of the page's own
      flow, so content scrolls all the way to the true bottom edge and
@@ -139,20 +146,22 @@ a:hover{ color:#fff; }
 .mg-nav .links{ display:flex; gap:28px; flex-wrap:wrap; }
 .mg-nav-info{ margin-left:auto; flex-shrink:0; }
 
-/* Drag-to-refresh pill — see MG.initPullToRefresh. Sits just under the nav
-   (same top offset logic as .mg-nav itself: env(safe-area-inset-top) first,
-   then clear of the 64px bar), hidden above its own position until a pull
-   is in progress, tracking the drag 1:1 via a JS-set transform rather than
-   any CSS transition (a transition would fight the constant per-frame
-   updates while dragging — see the function for where the settle/reset
-   animation actually comes from instead). */
+/* Drag-to-refresh pill — see MG.initPullToRefresh. It sits in the nav bar's
+   own place (centred in that 64px band, below the notch fill) at z-index 44,
+   one under .mg-nav — so the opaque nav simply covers it at rest, and a pull
+   that slides the whole page down uncovers it. That's the entire reveal: no
+   show/hide, just the nav moving off it.
+
+   No CSS transition here on purpose. While a finger is down the transform is
+   rewritten every frame from JS and has to track it exactly; the easing for
+   the release is applied inline by setDrag(px, true) and cleared afterwards. */
 #mg-pull-refresh{
-  position:fixed; top:calc(64px + env(safe-area-inset-top)); left:50%; z-index:44;
-  transform:translate(-50%,-100%); opacity:0; pointer-events:none;
+  position:fixed; top:calc(env(safe-area-inset-top) + 20px); left:50%; z-index:44;
+  transform:translate(-50%,0); opacity:0; pointer-events:none; white-space:nowrap;
   background:linear-gradient(155deg, #161c22 0%, #0f1317 100%);
   border:1px solid var(--line-bright); color:var(--ink-strong);
   font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.08em; text-transform:uppercase;
-  padding:7px 16px; margin-top:10px;
+  padding:6px 16px;
   clip-path: polygon(6px 0,100% 0,100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
 }
 #mg-pull-refresh.armed{ border-color:var(--accent); color:var(--accent); }
@@ -319,6 +328,25 @@ button{ font: inherit; }
 .cal-day{ min-height:78px; background:linear-gradient(155deg,#161c22,#10141a); padding:8px; display:flex; flex-direction:column; gap:6px; cursor:pointer; transition:background .15s ease; }
 .cal-day:hover{ background:linear-gradient(155deg,#1c242c,#141a20); }
 .cal-day.other-month{ opacity:.35; }
+/* Today. The hard part is being findable at a glance across 42 cells
+   without reading as another accent-orange event chip — so the loud,
+   solid accent goes on the date number itself (nothing else in the grid
+   is a filled block) and the cell only gets a lit surface and a softened
+   ring at just over half accent strength, well clear of .ev-accepted's
+   full-strength border and glow. Declared after :hover deliberately:
+   equal specificity, so this wins the background, and the hover state is
+   restored explicitly on the next line. */
+.cal-day.is-today{
+  background:linear-gradient(155deg,#1e262e,#151b21);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent),
+             inset 0 0 20px -9px var(--accent);
+}
+.cal-day.is-today:hover{ background:linear-gradient(155deg,#243039,#1a2128); }
+.cal-day.is-today .day-num{
+  background:var(--accent); color:#0a0d10; font-weight:600;
+  padding:1px 6px; margin:-1px -2px;
+  clip-path: polygon(4px 0,100% 0,100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+}
 .away-row{ display:flex; justify-content:space-between; align-items:flex-start; width:100%; background:transparent; border:none; padding:0; cursor:pointer; text-align:left; }
 .away-row:hover .away-chev{ color:var(--ink-strong); }
 .day-num{ font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--ink-dim); }

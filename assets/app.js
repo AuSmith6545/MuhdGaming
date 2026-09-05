@@ -534,11 +534,29 @@ MG.ready = function (activePage, onReady) {
 // half of that fix).
 MG.initPullToRefresh = function () {
   const THRESHOLD = 70;
+  const MAX_PULL = THRESHOLD + 34; // where the pull tops out, however hard you drag
   let startY = 0, dragY = 0, dragging = false, refreshing = false;
 
   const pill = document.createElement('div');
   pill.id = 'mg-pull-refresh';
   document.body.appendChild(pill);
+
+  // The whole page travels down as you pull, nav included, revealing the
+  // message underneath it. The transform goes on <html> rather than <body>
+  // for a specific reason: a transformed element becomes the containing
+  // block for its position:fixed descendants, and the nav is fixed. <body>
+  // carries padding-top — the space reserved for that very nav — and a
+  // fixed child resolves its `top` against the containing block's PADDING
+  // box, so transforming <body> would drop the nav by that 64px + notch the
+  // instant a drag began. <html> has no padding, so everything travels
+  // together and nothing jumps.
+  //
+  // The strip this opens up at the top needs no drawing of its own: the
+  // page background lives on <html> and propagates to the canvas, which
+  // stays put regardless of the transform. That's the same background move
+  // that fixed the iOS white bar — this effect gets a seamless backdrop out
+  // of it for free.
+  const root = document.documentElement;
 
   // A drawer/modal/menu open over the page has its own scrolling and its
   // own reason to be dragged on — this stays out of the way of all of them
@@ -549,10 +567,23 @@ MG.initPullToRefresh = function () {
     );
   }
 
-  function setDrag(px) {
+  // animate is for the release, when the page eases back or settles at the
+  // refresh position. While a finger is actually down there's no transition
+  // at all — the page has to track the drag exactly, not lag behind it.
+  function setDrag(px, animate) {
     dragY = px;
-    pill.style.opacity = px > 4 ? '1' : '0';
-    pill.style.transform = `translate(-50%, ${Math.min(px, THRESHOLD + 30) - 10}px)`;
+    const ease = animate ? 'transform .24s cubic-bezier(.22,.61,.36,1)' : '';
+    root.style.transition = ease;
+    pill.style.transition = animate ? ease + ', opacity .24s ease' : '';
+    // Cleared to empty, never translateY(0): at rest the transform has to be
+    // gone entirely, or <html> stays the containing block for every fixed
+    // drawer and modal in the app and their bottom:0 would anchor to the
+    // document's full height instead of the viewport.
+    root.style.transform = px > 0 ? `translateY(${px}px)` : '';
+    // Cancels that same movement on the pill, so it holds still in the nav's
+    // own place while the nav slides down off it.
+    pill.style.transform = `translate(-50%, ${-px}px)`;
+    pill.style.opacity = px > 6 ? '1' : '0';
     pill.classList.toggle('armed', px > THRESHOLD);
     pill.textContent = refreshing ? 'REFRESHING…' : px > THRESHOLD ? 'RELEASE TO REFRESH' : 'PULL TO REFRESH';
   }
@@ -563,6 +594,10 @@ MG.initPullToRefresh = function () {
   // left to scroll to begin with (scrollY 0, dragging down from there).
   document.addEventListener('touchstart', (e) => {
     if (refreshing || dragging || overlayOpen() || window.scrollY > 0 || e.touches.length !== 1) return;
+    // Drop any easing left over from the last release, so this drag starts
+    // tracking the finger from the first pixel.
+    root.style.transition = '';
+    pill.style.transition = '';
     startY = e.touches[0].clientY;
     dragging = true;
   }, { passive: true });
@@ -570,8 +605,10 @@ MG.initPullToRefresh = function () {
   document.addEventListener('touchmove', (e) => {
     if (!dragging || refreshing) return;
     const dy = e.touches[0].clientY - startY;
-    if (dy <= 0 || window.scrollY > 0) { dragging = false; setDrag(0); return; }
-    setDrag(dy * 0.5); // resistance — a 1:1 drag felt too twitchy to aim
+    if (dy <= 0 || window.scrollY > 0) { dragging = false; setDrag(0, true); return; }
+    // Half-speed and capped: resistance, so the page follows the finger
+    // without flying open, and a hard yank can't drag the nav off-screen.
+    setDrag(Math.min(dy * 0.5, MAX_PULL));
   }, { passive: true });
 
   function endDrag() {
@@ -579,10 +616,15 @@ MG.initPullToRefresh = function () {
     dragging = false;
     if (dragY > THRESHOLD) {
       refreshing = true;
-      setDrag(THRESHOLD);
+      setDrag(THRESHOLD, true); // hold it open on "Refreshing…" until the reload lands
       location.reload();
     } else {
-      setDrag(0);
+      setDrag(0, true);
+      // Drop the inline transition once the page has settled back, so it
+      // isn't left on the element between gestures.
+      setTimeout(() => {
+        if (!dragging) { root.style.transition = ''; pill.style.transition = ''; }
+      }, 260);
     }
   }
   document.addEventListener('touchend', endDrag);

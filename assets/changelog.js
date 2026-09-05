@@ -13,6 +13,22 @@
 
 window.MG_CHANGELOG = [
   {
+    date: '2026-09-04',
+    title: 'Two votes to approve, and a much better installed app',
+    summary: "A game only needs 2 yes votes now, anyone else can tag themselves as interested, and the home-screen app gets pull-to-refresh, faster launches and a proper edge-to-edge screen.",
+    details: [
+      "A game is approved as soon as 2 friends vote yes — no more waiting on votes that were never going to change the outcome.",
+      "Once a game is approved, anyone who didn't vote can tag themselves \"interested\" on its page, so whoever's planning a session can see who's in without reopening the vote.",
+      "Recommendation cards now show progress toward those 2 votes, with the full tally of yes/no underneath.",
+      "Pull down from the top of any page to refresh — the whole page, nav and all, slides down with your finger.",
+      "Today is now clearly marked on the month calendar.",
+      "The installed app opens much faster, holds up on a patchy connection, and its content runs to the true bottom edge of the screen instead of stopping at a dark bar.",
+      "A loading screen that gets stuck now tells you so and offers a Reload, instead of hanging silently.",
+      "Confirmations and error messages are the app's own now, instead of the browser's grey system pop-ups.",
+      "Behind the scenes: a security and speed pass over the whole site.",
+    ],
+  },
+  {
     date: '2026-09-01',
     title: 'Games reorganized, new logo, smoother installed-app experience',
     summary: "Approved is now the default Games tab, search moved onto the page itself, a new mascot logo replaces the placeholder mark, and the installed app fixes a couple of rough PWA edges.",
